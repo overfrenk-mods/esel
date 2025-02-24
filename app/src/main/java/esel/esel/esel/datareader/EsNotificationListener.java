@@ -38,7 +38,7 @@ public class EsNotificationListener extends NotificationListenerService {
                     long fiveMinutes = 300000; // 5 minuti in millisecondi
 
                     // Controlla se sono passati almeno 4 minuti dall'ultima lettura
-                    if (currentTimestamp - lastProcessedTimestamp >= fiveMinutes * 0.8) { // 4 minuti
+                    if (currentTimestamp - lastProcessedTimestamp >= fiveMinutes * 0.9) { // 4.5 minuti
 
                         SGV sgv = generateSGV(notification, lastReadings.size());
                         if (sgv != null) {
