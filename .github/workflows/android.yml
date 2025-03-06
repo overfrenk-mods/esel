@@ -1,8 +1,6 @@
 name: Android CI
 
 on:
-  push:
-    branches: [ "main" ]
   workflow_dispatch: # Aggiunto il trigger per l'avvio manuale
 
 jobs:
