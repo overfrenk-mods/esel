@@ -28,13 +28,13 @@
             android:id="@+id/textView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="ES easy leecher" />
+            android:text="Eversense READER" />
 
         <TextView
             android:id="@+id/textView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/app_version" />
+            android:text="V-3.0.4 mods 5 minuti" />
     </LinearLayout>
 
     <LinearLayout
