@@ -1,8 +1,7 @@
 package esel.esel.esel.preferences;
 
-import android.app.Fragment;
 import android.os.Bundle;
-import android.preference.PreferenceFragment;
+import androidx.preference.PreferenceFragmentCompat; // Importa PreferenceFragmentCompat
 
 import esel.esel.esel.R;
 
@@ -10,14 +9,11 @@ import esel.esel.esel.R;
  * Created by adrian on 04/08/17.
  */
 
-
-public class PrefsFragment extends PreferenceFragment {
+public class PrefsFragment extends PreferenceFragmentCompat { // Ora estende PreferenceFragmentCompat
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-
+    public void onCreatePreferences(Bundle savedInstanceState, String rootKey) { // Metodo cambiato per PreferenceFragmentCompat
         // Load the preferences from an XML resource
-        addPreferencesFromResource(R.xml.preferences);
+        setPreferencesFromResource(R.xml.preferences, rootKey); // Usa setPreferencesFromResource
     }
 }

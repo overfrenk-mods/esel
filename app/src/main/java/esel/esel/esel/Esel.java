@@ -1,11 +1,13 @@
 package esel.esel.esel;
 
 import android.app.Application;
+import android.content.Context; // L'import Context è stato aggiunto prima, lo mantengo per chiarezza
+import android.content.Intent;
 import android.content.res.Resources;
+import androidx.core.content.ContextCompat;
 
-import esel.esel.esel.receivers.KeepAliveReceiver;
-import esel.esel.esel.receivers.ReadReceiver;
-
+import esel.esel.esel.services.DataMonitorService;
+import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
 
 /**
@@ -16,8 +18,6 @@ public class Esel extends Application {
 
     private static Esel sInstance;
     private static Resources sResources;
-    private ReadReceiver readReceiver;
-    private KeepAliveReceiver keepAliveReceiver;
 
 
     @Override
@@ -25,12 +25,14 @@ public class Esel extends Application {
         super.onCreate();
         sInstance = this;
         sResources = getResources();
+        EselLog.LogI("EselApp", "Application onCreate");
 
-        boolean use_patched_es = SP.getBoolean("use_patched_es", false);
+        boolean use_patched_es = SP.getBoolean("use_patched_es", false); // Default è FALSE
         if (use_patched_es) {
-            startKeepAliveService();
-            startReadReceiver();
+            startDataMonitorService();
         }
+        // Nota: Se use_patched_es è FALSE, il servizio non parte da qui.
+        // Verrà avviato dall'AutostartReceiver (al boot) o da un'azione UI.
     }
 
     public static Esel getsInstance() {
@@ -41,40 +43,30 @@ public class Esel extends Application {
         return sResources;
     }
 
-
-    public synchronized void startReadReceiver() {
-
-        if (readReceiver == null) {
-            readReceiver = new ReadReceiver();
-            readReceiver.setAlarm(this);
-        } else {
-            readReceiver.setAlarm(this);
-        }
+    public synchronized void startDataMonitorService() {
+        EselLog.LogI("EselApp", "Attempting to start DataMonitorService");
+        ContextCompat.startForegroundService(this, new Intent(this, DataMonitorService.class));
     }
 
+    public synchronized void stopDataMonitorService() {
+        EselLog.LogI("EselApp", "Attempting to stop DataMonitorService");
+        stopService(new Intent(this, DataMonitorService.class));
+    }
+
+    // I seguenti metodi reindirizzano le chiamate al DataMonitorService
+    public synchronized void startReadReceiver() {
+        startDataMonitorService();
+    }
 
     public synchronized void stopReadReceiver() {
-        if (readReceiver != null) {
-            readReceiver.cancelAlarm(this);
-            readReceiver = null;
-        }
+        stopDataMonitorService();
     }
-
 
     public synchronized void startKeepAliveService() {
-        if (keepAliveReceiver == null) {
-            keepAliveReceiver = new KeepAliveReceiver();
-            keepAliveReceiver.setAlarm(this);
-        } else {
-            keepAliveReceiver.setAlarm(this);
-        }
+        startDataMonitorService();
     }
 
-
     public synchronized void stopKeepAliveService() {
-        if (keepAliveReceiver != null) {
-            keepAliveReceiver.cancelAlarm(this);
-            keepAliveReceiver = null;
-        }
+        stopDataMonitorService();
     }
 }

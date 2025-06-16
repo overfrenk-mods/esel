@@ -13,8 +13,8 @@
     android:theme="@style/ThemeOverlay.AppCompat.Dark">
 
     <LinearLayout
-        android:layout_width="150dp"
-        android:layout_height="match_parent"
+        android:layout_width="wrap_content"
+        android:layout_height="75dp"
         android:orientation="vertical">
 
         <TextView
@@ -28,13 +28,13 @@
             android:id="@+id/textView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Eversense READER" />
+            android:text="@string/EsNotificationListener_name" />
 
         <TextView
             android:id="@+id/textView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="V-3.0.4 mods 5 minuti" />
+            android:text="@string/app_version" />
     </LinearLayout>
 
     <LinearLayout
@@ -45,7 +45,7 @@
         <ImageView
             android:id="@+id/imageView"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:paddingTop="@dimen/nav_header_vertical_spacing"
             app:srcCompat="@mipmap/ic_launcher" />
     </LinearLayout>

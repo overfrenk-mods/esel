@@ -1,15 +1,13 @@
 package esel.esel.esel.receivers;
 
-import android.app.AlarmManager;
-import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.os.PowerManager;
-import android.util.Log;
+import android.os.Build;
+import androidx.core.content.ContextCompat;
 
-import esel.esel.esel.Esel;
-import esel.esel.esel.util.SP;
+import esel.esel.esel.services.DataMonitorService;
+import esel.esel.esel.util.EselLog;
 
 /**
  * Created by adrian on 04/08/17.
@@ -17,8 +15,13 @@ import esel.esel.esel.util.SP;
 
 public class AutostartReceiver extends BroadcastReceiver {
 
+    private static final String TAG = "AutostartReceiver";
+
     @Override
     public void onReceive(Context context, Intent intent) {
-        //do nothing. Creating the app should start things.
+        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+            EselLog.LogI(TAG, "Received BOOT_COMPLETED. Attempting to start DataMonitorService.");
+            ContextCompat.startForegroundService(context, new Intent(context, DataMonitorService.class));
+        }
     }
 }

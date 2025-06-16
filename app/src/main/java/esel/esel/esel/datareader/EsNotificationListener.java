@@ -6,24 +6,32 @@ import android.service.notification.StatusBarNotification;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Collections;
+import java.util.Comparator;
 
+import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
-import esel.esel.esel.receivers.ReadReceiver;
 
 /**
- * Created by OverFrenK on 24-02-24.
+ * Creato da OverFrenK il 24-02-24.
  */
 public class EsNotificationListener extends NotificationListenerService {
 
-    private static List<SGV> lastReadings = new ArrayList<>();
-    private static final ReadReceiver rr = new ReadReceiver();
-    private static long lastProcessedTimestamp = 0; // Timestamp dell'ultima lettura elaborata
+    private static SGV latestStoredSgv = null;
+    private static long lastSentToApsTimestamp = 0;
+
+    private static final String TAG = "EsNotificationListener";
+
+    private static final long FIVE_MINUTES_MS = 5 * 60 * 1000L;
+    private static final long SYNC_TOLERANCE_MS = 10 * 1000L;
+    private static final long SYNC_GAP_THRESHOLD_MS = 10 * 60 * 1000L;
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
+        EselLog.LogI(TAG, "onNotificationPosted: Notifica ricevuta da package: " + sbn.getPackageName());
 
-        boolean use_patched_es = SP.getBoolean("use_patched_es", true);
-        if (use_patched_es) {
+        if (SP.getBoolean("use_patched_es", false)) {
+            EselLog.LogV(TAG, "Notifica ricevuta ma modalità patch attiva, ignoro.");
             return;
         }
 
@@ -34,71 +42,150 @@ public class EsNotificationListener extends NotificationListenerService {
             Notification notification = sbn.getNotification();
             if (notification != null && notification.tickerText != null) {
                 try {
-                    long currentTimestamp = notification.when;
-                    long fiveMinutes = 300000; // 5 minuti in millisecondi
+                    long currentNotificationTimestamp = notification.when;
 
-                    // Controlla se sono passati almeno 4 minuti dall'ultima lettura
-                    if (currentTimestamp - lastProcessedTimestamp >= fiveMinutes * 0.9) { // 4.5 minuti
+                    long lastEversenseDataTimestamp = SP.getLong("last_eversense_data_timestamp", 0L);
 
-                        SGV sgv = generateSGV(notification, lastReadings.size());
+                    boolean isValidTimeSlot = false;
+
+                    if (lastEversenseDataTimestamp == 0L || (currentNotificationTimestamp - lastEversenseDataTimestamp) >= FIVE_MINUTES_MS) {
+                        isValidTimeSlot = true;
+                        EselLog.LogI(TAG, "Notifica in nuovo slot 5min o primo allineamento. Timestamp: " + currentNotificationTimestamp);
+                    } else {
+                        long timeSinceLastSlot = currentNotificationTimestamp - lastEversenseDataTimestamp;
+                        if (timeSinceLastSlot < FIVE_MINUTES_MS) {
+                            EselLog.LogV(TAG, "Notifica ricevuta nello stesso slot di 5 minuti. Scarto. Attuale: " + currentNotificationTimestamp + ", Ultimo Slot: " + lastEversenseDataTimestamp);
+                        } else {
+                            EselLog.LogW(TAG, "Notifica inaspettata. Scarto. Attuale: " + currentNotificationTimestamp + ", Ultimo Slot: " + lastEversenseDataTimestamp);
+                        }
+                    }
+
+                    if (isValidTimeSlot) {
+                        if (latestStoredSgv != null && currentNotificationTimestamp <= latestStoredSgv.timestamp) {
+                            EselLog.LogW(TAG, "Salto notifica più vecchia di quella già memorizzata. Attuale: " + currentNotificationTimestamp + ", Memorizzata: " + latestStoredSgv.timestamp);
+                            return;
+                        }
+
+                        if (currentNotificationTimestamp <= lastSentToApsTimestamp) {
+                            EselLog.LogW(TAG, "Salto notifica con timestamp <= ultimo inviato ad APS. Attuale: " + currentNotificationTimestamp + ", Ultimo inviato: " + lastSentToApsTimestamp);
+                            return;
+                        }
+
+                        EselLog.LogI(TAG, "Processo notifica Eversense valida per SGV: " + notification.tickerText);
+                        SGV sgv = generateSGV(notification, 0);
                         if (sgv != null) {
-                            lastReadings.add(sgv);
-                            rr.CallBroadcast(null);
-                            lastProcessedTimestamp = currentTimestamp; // Aggiorna il timestamp dell'ultima lettura elaborata
+                            synchronized (EsNotificationListener.class) {
+                                latestStoredSgv = sgv;
+                            }
+                            SP.putLong("last_eversense_data_timestamp", sgv.timestamp);
+                            EselLog.LogI(TAG, "latestStoredSgv aggiornato: " + sgv.value + " a " + sgv.timestamp);
+                        } else {
+                            EselLog.LogW(TAG, "generateSGV ha restituito null per la notifica: " + notification.tickerText);
                         }
                     }
 
                 } catch (NumberFormatException err) {
-                    err.printStackTrace();
+                    EselLog.LogE(TAG, "NumberFormatException in onNotificationPosted per tickerText: " + notification.tickerText + ", Errore: " + err.getMessage());
+                } catch (Exception e) {
+                    EselLog.LogE(TAG, "Eccezione generica in onNotificationPosted: " + e.getMessage());
                 }
+            } else {
+                EselLog.LogV(TAG, "Notifica o tickerText è nullo per il package: " + sbn.getPackageName());
             }
+        } else {
+            EselLog.LogV(TAG, "Salto la notifica da un package non-Eversense: " + sbn.getPackageName());
         }
+    }
+
+    @Override
+    public void onListenerConnected() {
+        EselLog.LogI(TAG, "Notification Listener connesso!");
+    }
+
+    @Override
+    public void onListenerDisconnected() {
+        EselLog.LogW(TAG, "Notification Listener disconnesso!");
     }
 
     public static List<SGV> getData(int number, long lastReadingTime) {
         List<SGV> result = new ArrayList<>();
-        for (SGV reading : lastReadings) {
-            //if(reading.timestamp > lastReadingTime){
-            result.add(reading);
-            //}
+        SGV sgvToSend = null;
+
+        synchronized (EsNotificationListener.class) {
+            if (latestStoredSgv != null) {
+                if (latestStoredSgv.timestamp > lastReadingTime && latestStoredSgv.timestamp > lastSentToApsTimestamp) {
+                    sgvToSend = latestStoredSgv;
+                    EselLog.LogI(TAG, "getData ha trovato un nuovo SGV più fresco da inviare: " + sgvToSend.value + " a " + sgvToSend.timestamp);
+                    latestStoredSgv = null;
+                } else {
+                    EselLog.LogV(TAG, "getData ha trovato un SGV ma non è più fresco o è già stato inviato. Salto. Valore: " + latestSgv.value + ", Timestamp: " + latestSgv.timestamp);
+                    latestStoredSgv = null;
+                }
+            }
         }
 
-        while (result.size() > number) {
-            result.remove(0);
-        }
-
-        if (result.size() == number) {
-            SGV last = lastReadings.get(lastReadings.size() - 1);
-            lastReadings.clear();
-            lastReadings.add(last);
+        if (sgvToSend != null) {
+            result.add(sgvToSend);
+        } else {
+            EselLog.LogV(TAG, "getData restituisce lista vuota (nessun nuovo SGV da inviare).");
         }
 
         return result;
     }
 
+    public static void setLastSentToApsTimestamp(long timestamp) {
+        lastSentToApsTimestamp = timestamp;
+        EselLog.LogI(TAG, "lastSentToApsTimestamp aggiornato a: " + timestamp);
+    }
+
     public static SGV generateSGV(Notification notification, int record) {
         long timestamp = notification.when;
-        String tickerText = (String) notification.tickerText;
+        CharSequence tickerTextCharSeq = notification.tickerText;
+        if (tickerTextCharSeq == null) {
+            EselLog.LogE(TAG, "Ticker text è nullo per la notifica con timestamp: " + timestamp);
+            return null;
+        }
+        String tickerText = tickerTextCharSeq.toString();
+
         int value;
-        if (tickerText.contains(".") || tickerText.contains(",")) { //is mmol/l
-            float valuef = Float.parseFloat(tickerText);
-            value = SGV.Convert(valuef);
-        } else {
-            value = Integer.parseInt(tickerText);
+        try {
+            if (tickerText.contains(".") || tickerText.contains(",")) {
+                String formattedTickerText = tickerText.replace(",", ".");
+                float valuef = Float.parseFloat(formattedTickerText);
+                value = SGV.Convert(valuef);
+            } else {
+                value = Integer.parseInt(tickerText);
+            }
+        } catch (NumberFormatException e) {
+            EselLog.LogE(TAG, "NumberFormatException in generateSGV per tickerText: '" + tickerText + "', Errore: " + e.getMessage());
+            return null;
         }
 
-        if (lastReadings.size() > 0) {
+        // ********************************************************************************
+        // INIZIO BLOCCO COMMENTATO (Rimosso per via della gestione con latestStoredSgv)
+        // ********************************************************************************
+        /*
+        if (lastReadings.size() > 0) { // lastReadings non è più una lista accumulativa in questo file
             long five_min = 300000l;
-            SGV oldSgv = lastReadings.get(lastReadings.size() - 1);
-            long lastreadingtime = oldSgv.timestamp; // SP.getLong("lastreadingtime_nl",timestamp);
-            int lastreadingvalue = oldSgv.raw; //SP.getInt("lastreadingvalue_nl",value);
-            if (value == lastreadingvalue && (lastreadingtime + (five_min * 1.1)) > timestamp) { // no new value // 5 min 30 secs grace time
-                return null;
+            SGV oldSgv = null;
+            synchronized (lastReadings) {
+                if (!lastReadings.isEmpty()) {
+                    oldSgv = lastReadings.get(lastReadings.size() - 1);
+                }
+            }
+            if(oldSgv != null) {
+                long lastreadingtime = oldSgv.timestamp;
+                int lastreadingvalue = oldSgv.raw;
+                if (value == lastreadingvalue && (timestamp - lastreadingtime) < (FIVE_MINUTES_MS * 0.9) ) {
+                    EselLog.LogW(TAG, "Salto SGV duplicato o troppo frequente (in generateSGV): " + value + " a " + timestamp);
+                    return null;
+                }
             }
         }
-
-        // SP.putLong("lastreadingtime_nl",timestamp);
-        // SP.putInt("lastreadingvalue_nl",value);
+        */
+        // ********************************************************************************
+        // FINE BLOCCO COMMENTATO
+        // ********************************************************************************
 
         return new SGV(value, timestamp, record);
     }

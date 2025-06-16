@@ -1,91 +1,72 @@
 package esel.esel.esel;
 
-import android.content.Intent;
-import android.support.design.widget.NavigationView;
-import android.support.v4.view.GravityCompat;
-import android.support.v4.widget.DrawerLayout;
-import android.support.v7.app.ActionBarDrawerToggle;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.Toolbar;
-import android.view.Menu;
-import android.view.MenuItem;
+import android.os.Bundle;
+// Rimuovi import relativi al Drawer, Toolbar, NavigationView se non più usati qui
+// import android.content.Intent;
+// import android.view.MenuItem;
+// import android.view.View;
+// import android.view.Menu;
+// import androidx.appcompat.app.ActionBarDrawerToggle;
+import androidx.appcompat.app.AppCompatActivity; // Mantieni questo
+// import androidx.appcompat.widget.Toolbar;
+// import androidx.core.view.GravityCompat;
+// import androidx.drawerlayout.widget.DrawerLayout;
+// import com.google.android.material.navigation.NavigationView;
 
-import esel.esel.esel.preferences.Preferences;
+// Import relativi a Preferences, LogActivity, ecc. se non usati altrove in MenuActivity
+// import esel.esel.esel.preferences.Preferences;
+// import esel.esel.esel.LogActivity;
+
 
 /**
- * Created by adrian on 07/08/17.
+ * Created by adrian on 04/08/17.
  */
 
-public class MenuActivity extends AppCompatActivity  implements NavigationView.OnNavigationItemSelectedListener {
+// Se MenuActivity non implementa più NavigationView.OnNavigationItemSelectedListener,
+// rimuovi "implements NavigationView.OnNavigationItemSelectedListener"
+public class MenuActivity extends AppCompatActivity { // Rimuovi il listener se non più implementato
 
-
-    protected void setupView(int layout) {
-        setContentView(layout);
-        Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
-        DrawerLayout drawer = (DrawerLayout) findViewById(R.id.drawer_layout);
-        ActionBarDrawerToggle toggle = new ActionBarDrawerToggle(
-                this, drawer, toolbar, R.string.navigation_drawer_open, R.string.navigation_drawer_close);
-        drawer.setDrawerListener(toggle);
-        toggle.syncState();
-
-        NavigationView navigationView = (NavigationView) findViewById(R.id.nav_view);
-        navigationView.setNavigationItemSelectedListener(this);
-    }
+    // Rimuovi le dichiarazioni delle variabili per Toolbar, DrawerLayout, NavigationView se non più usate qui
+    // private Toolbar toolbar;
+    // private DrawerLayout drawer;
+    // private NavigationView navigationView;
 
     @Override
-    public boolean onNavigationItemSelected(MenuItem item) {
-        // Handle navigation view item clicks here.
-        int id = item.getItemId();
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        // Se MenuActivity non ha più un suo layout, puoi rimuovere o modificare questa riga.
+        // Ad esempio, setContentView(R.layout.some_other_menu_layout);
+        // O rimuoverla se MenuActivity è solo una classe base astratta.
+        // Se MenuActivity era la tua Activity principale che mostrava il drawer,
+        // e ora MainActivity lo fa, potresti non voler mostrare nulla qui.
+        // Per ora, la lascio ma tieni presente che potrebbe non essere necessaria
+        // o dovrebbe puntare a un layout diverso.
+        // setContentView(R.layout.activity_main); // O R.layout.some_other_layout_if_this_activity_is_still_used
 
-        if (id == R.id.nav_settings) {
-            Intent intent = new Intent(this, Preferences.class);
-            startActivity(intent);
-        } else  if (id == R.id.nav_home && !(this  instanceof MainActivity)){
-            Intent intent = new Intent(this, MainActivity.class);
-            startActivity(intent);
-        } else  if (id == R.id.nav_errors && !(this  instanceof LogActivity)){
-            Intent intent = new Intent(this, LogActivity.class);
-            startActivity(intent);
-        }
+        // Rimuovi il codice di setup del drawer se è stato spostato
+        // toolbar = findViewById(R.id.toolbar);
+        // setSupportActionBar(toolbar);
+        // drawer = findViewById(R.id.drawer_layout);
+        // navigationView = findViewById(R.id.nav_view);
+        // ActionBarDrawerToggle toggle = new ActionBarDrawerToggle(...);
+        // drawer.addDrawerListener(toggle);
+        // toggle.syncState();
+        // navigationView.setNavigationItemSelectedListener(this);
 
-        DrawerLayout drawer = (DrawerLayout) findViewById(R.id.drawer_layout);
-        drawer.closeDrawer(GravityCompat.START);
-        return true;
+        // setupView(); // Se questo metodo era legato al drawer, potresti volerlo rimuovere o modificarlo.
     }
 
-    @Override
-    public boolean onOptionsItemSelected(MenuItem item) {
-        // Handle action bar item clicks here. The action bar will
-        // automatically handle clicks on the Home/Up button, so long
-        // as you specify a parent activity in AndroidManifest.xml.
-        int id = item.getItemId();
+    // Rimuovi il metodo setupView() se non più usato o se non fa nulla
+    // private void setupView() { }
 
-        //noinspection SimplifiableIfStatement
-        if (id == R.id.action_settings) {
-            Intent intent = new Intent(this, Preferences.class);
-            startActivity(intent);
-            return true;
-        }
-
-        return super.onOptionsItemSelected(item);
-    }
-
-    @Override
-    public void onBackPressed() {
-        DrawerLayout drawer = (DrawerLayout) findViewById(R.id.drawer_layout);
-        if (drawer.isDrawerOpen(GravityCompat.START)) {
-            drawer.closeDrawer(GravityCompat.START);
-        } else {
-            super.onBackPressed();
-        }
-    }
-
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        // Inflate the menu; this adds items to the action bar if it is present.
-        getMenuInflater().inflate(R.menu.main, menu);
-        return true;
-    }
-
+    // Rimuovi i metodi onBackPressed, onCreateOptionsMenu, onOptionsItemSelected, onNavigationItemSelected
+    // se non sono più rilevanti per questa classe o se sono stati spostati.
+    // @Override
+    // public void onBackPressed() { ... }
+    // @Override
+    // public boolean onCreateOptionsMenu(Menu menu) { ... }
+    // @Override
+    // public boolean onOptionsItemSelected(MenuItem item) { ... }
+    // @Override
+    // public boolean onNavigationItemSelected(MenuItem item) { ... }
 }

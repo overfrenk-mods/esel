@@ -9,18 +9,28 @@ import java.time.format.DateTimeFormatter;
 
 import esel.esel.esel.util.SP;
 
-public class LogActivity extends MenuActivity {
+// LogActivity estende MenuActivity. Assicurati che MenuActivity sia la superclasse corretta.
+// LogActivity necessita di estendere AppCompatActivity (direttamente o indirettamente)
+// per funzionare correttamente in AndroidX. Poiché estende MenuActivity,
+// e MenuActivity estende AppCompatActivity, questo è corretto.
 
-    private static TextView textViewValue;
+public class LogActivity extends MenuActivity { // Mantieni LogActivity che estende MenuActivity
+
+    private static TextView textViewValue; // Nota: static TextView può causare memory leak o NPE se l'Activity viene distrutta.
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setupView(R.layout.activity_errors);
+        // ********************************************************************************
+        // CORREZIONE: Imposta il layout usando setContentView()
+        // ********************************************************************************
+        setContentView(R.layout.activity_errors); // Questo è il modo standard per impostare il layout
+
         textViewValue = (TextView) findViewById(R.id.textview_main);
         String msg = SP.getString("logging","");
         textViewValue.setText(msg);
     }
+
     public static void addLog(String type,String tag, String value){
         String msg = SP.getString("logging","");
         int lines_limit = 800;
@@ -39,6 +49,10 @@ public class LogActivity extends MenuActivity {
         msg = line + "\n" + msg;
         SP.putString("logging",msg);
 
+        // ********************************************************************************
+        // Nota: Questo aggiornamento di textViewValue da un metodo statico può causare problemi
+        // (NullPointerException) se l'Activity non è attiva o viene distrutta.
+        // ********************************************************************************
         if(textViewValue != null){
             textViewValue.setText(msg);
         }

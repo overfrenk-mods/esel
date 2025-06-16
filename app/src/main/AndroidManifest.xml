@@ -9,6 +9,11 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+
     <application
         android:name=".Esel"
         android:allowBackup="true"
@@ -17,10 +22,12 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
+
         <activity
             android:name=".MainActivity"
             android:label="@string/app_name"
-            android:theme="@style/AppTheme.NoActionBar">
+            android:theme="@style/AppTheme.NoActionBar"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -40,6 +47,16 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".receivers.AppUpdateReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+
         <service
             android:name=".datareader.EsNotificationListener"
             android:exported="true"
@@ -50,6 +67,13 @@
             </intent-filter>
             <meta-data android:name="android.service.notification.notification_listener_service" android:value=".datareader.EsNotificationListener" />
         </service>
+
+        <service
+            android:name=".services.DataMonitorService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
     </application>
     <queries>
         <package android:name="com.senseonics.gen12androidapp"/>

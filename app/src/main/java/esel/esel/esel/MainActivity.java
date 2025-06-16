@@ -1,287 +1,182 @@
 package esel.esel.esel;
 
-import android.content.ActivityNotFoundException;
-import android.content.Context;
-import android.content.DialogInterface;
-import android.content.Intent;
-import android.content.SharedPreferences;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
-import android.os.PowerManager;
-import android.os.SystemClock;
-import android.provider.Settings;
-import android.support.v4.app.NotificationManagerCompat;
-import android.support.v7.app.AlertDialog;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.content.Intent;
+import android.view.MenuItem;
 import android.view.View;
+import android.view.Menu;
 import android.widget.Button;
 import android.widget.TextView;
+import android.content.Context;
+import android.provider.Settings;
+import android.net.Uri;
+import android.app.AlertDialog;
+import android.os.PowerManager; // <-- AGGIUNGI QUESTO IMPORT
 
-import java.io.File;
-import java.util.List;
 
-import esel.esel.esel.datareader.Datareader;
-import esel.esel.esel.datareader.EsNowDatareader;
-import esel.esel.esel.datareader.SGV;
+import androidx.appcompat.app.ActionBarDrawerToggle;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+import androidx.core.view.GravityCompat;
+import androidx.drawerlayout.widget.DrawerLayout;
+import com.google.android.material.navigation.NavigationView;
+
+import esel.esel.esel.preferences.Preferences;
+import esel.esel.esel.LogActivity;
 import esel.esel.esel.receivers.ReadReceiver;
 import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
-import esel.esel.esel.util.ToastUtils;
 
-public class MainActivity extends MenuActivity {
+import java.io.File;
 
-    private Button buttonReadValue;
-    private Button buttonSync;
-    private Button buttonExport;
-    private TextView textViewValue;
+public class MainActivity extends AppCompatActivity
+        implements NavigationView.OnNavigationItemSelectedListener {
 
-    private static final String TAG = "MainActivity";
+    private static final int PERMISSION_REQUEST_CODE_POST_NOTIFICATIONS = 1;
+
+    private Toolbar toolbar;
+    private DrawerLayout drawer;
+    private NavigationView navigationView;
+    private Button exportDataButton;
+    private TextView mainTextView;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setupView(R.layout.activity_main);
-        askForBatteryOptimizationPermission();
-        askForNotificationAccess();
-        buttonReadValue = (Button) findViewById(R.id.button_readvalue);
-        buttonSync = (Button) findViewById(R.id.button_manualsync);
-        buttonExport = (Button) findViewById(R.id.button_exportdata);
-        textViewValue = (TextView) findViewById(R.id.textview_main);
+        setContentView(R.layout.activity_main);
 
-        /*FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
-        fab.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                        .setAction("Action", null).show();
-            }
-        });*/
+        toolbar = findViewById(R.id.toolbar);
+        setSupportActionBar(toolbar);
 
-        SharedPreferences.OnSharedPreferenceChangeListener settingsListener = new SharedPreferences.OnSharedPreferenceChangeListener() {
-            @Override
-            public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
-                if (key.equals("use_patched_es")){
-                    if (SP.getBoolean("use_patched_es", false)){
-                        Esel.getsInstance().startKeepAliveService();
-                        EselLog.LogV(TAG, "START patched_es keepAlive recievers");
-                        Esel.getsInstance().startReadReceiver();
-                        EselLog.LogV(TAG, "START patched_es Read recievers");
-                    } else {
-                        Esel.getsInstance().stopReadReceiver();
-                        EselLog.LogV(TAG, "STOP patched_es Read recievers");
-                        Esel.getsInstance().stopKeepAliveService();
-                        EselLog.LogV(TAG, "STOP patched_es keepAlive recievers");
-                    }
-                } else if (key.equals("esdms_us") || key.equals("use_esdms") ) {
-                    SP.putString("esnow_token", "");
-                }
-            }
-        };
-        SP.sharedPreferences.registerOnSharedPreferenceChangeListener(settingsListener);
+        drawer = findViewById(R.id.drawer_layout);
+        navigationView = findViewById(R.id.nav_view);
 
-        buttonReadValue.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                try {
+        ActionBarDrawerToggle toggle = new ActionBarDrawerToggle(
+                this, drawer, toolbar, R.string.navigation_drawer_open, R.string.navigation_drawer_close);
+        drawer.addDrawerListener(toggle);
+        toggle.syncState();
 
-                    long currentTime = System.currentTimeMillis();
+        navigationView.setNavigationItemSelectedListener(this);
 
-                    long syncTime = 30 * 60 * 1000L;
-
-                    boolean use_esdms = SP.getBoolean("use_esdms",false);
-                    if(use_esdms){
-                        class DataHandler implements EsNowDatareader.ProcessResultI{
-                            @Override
-                            public void ProcessResult(List<SGV> data) {
-                                if (data != null && data.size() > 0) {
-                                    textViewValue.setText("");
-                                    for (int i = 0; i < data.size(); i++) {
-                                        SGV sgv = data.get(i);
-                                        textViewValue.append(sgv.toString() +" " + sgv.direction + "\n");
-                                        //LocalBroadcaster.broadcast(sgv);
-                                        EselLog.LogI(TAG,String.valueOf(sgv.value) + " " + sgv.direction);
-                                    }
-                                } else {
-                                    EselLog.LogE(TAG,"No access to eversensedms",true);
-                                }
-                            }
-                        }
-
-                        EsNowDatareader reader = new EsNowDatareader();
-                        reader.queryCurrentValue(new DataHandler());
-
-
-
-                    }else {
-                        List<SGV> valueArray = Datareader.readDataFromContentProvider(getBaseContext(), 6, currentTime - syncTime);
-
-                        if (valueArray != null && valueArray.size() > 0) {
-                            textViewValue.setText("");
-                            for (int i = 0; i < valueArray.size(); i++) {
-                                SGV sgv = valueArray.get(i);
-                                textViewValue.append(sgv.toString() +" " + sgv.direction+ "\n");
-                                //LocalBroadcaster.broadcast(sgv);
-                                EselLog.LogI(TAG,String.valueOf(sgv.value) + " " + sgv.direction);
-                            }
-                        } else {
-                            EselLog.LogE(TAG,"DB not readable!",true);
-                        }
-                    }
-
-
-                } catch (android.database.CursorIndexOutOfBoundsException eb) {
-                    eb.printStackTrace();
-                    EselLog.LogW(TAG,"DB is empty!\nIt can take up to 15min with running Eversense App until values are available!",true);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        });
-
-        buttonSync.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                int sync = 8;
-                try {
-
-                    sync = SP.getInt("max-sync-hours", sync);
-
-
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-
-
-                ReadReceiver receiver = new ReadReceiver();
-                receiver.FullSync(getBaseContext(), sync);
-                textViewValue.setText("Read values from DB\n(last " + sync + " hours)");
-
-            }
-        });
-
-        buttonExport.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                int sync = 8;
-
-                try {
-
-                    sync = SP.getInt("max-sync-hours", sync);
-
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-
-
-                    String filename = "esel_output_" + System.currentTimeMillis() + ".json";
-                    String path = Environment.getExternalStorageDirectory().getAbsolutePath() + File.separator + Environment.DIRECTORY_DOWNLOADS;
-                    File file = new File(path, filename);
-
-                    ReadReceiver receiver = new ReadReceiver();
-
-                     receiver.FullExport(getBaseContext(),file, sync);
-
-                    textViewValue.setText("Created file " + file.getAbsoluteFile() + " containing values from DB\n(last " + sync + " hours)");
-
-
-                }
-        });
-
-    }
-
-    private void askForNotificationAccess() {
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            final String packageName = getPackageName();
-            NotificationManagerCompat notificationManager = NotificationManagerCompat.from(getBaseContext());
-
-            boolean nlenabled = NotificationManagerCompat.getEnabledListenerPackages(getBaseContext()).contains(packageName);
-
-            if (!nlenabled) {
-                final Runnable askNotificationAccessRunnable = new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
-                            startActivity(intent);
-                        } catch (ActivityNotFoundException e) {
-                            final String msg = "Device does not appear to support notification access!";
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    ToastUtils.makeToast("Device does not appear to support notification access!");
-                                }
-                            });
-                        }
-                    }
-                };
-
-                try {
-                    final Intent intent = new Intent();
-                    intent.setAction(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
-                    intent.setData(Uri.parse("package:" + packageName));
-                    //startActivity(intent);
-
-
-                    AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                    builder.setTitle("Please Allow Permission")
-                            .setMessage("For data access in Companion Mode, ESEL needs access to the System Notifications.\n" +
-                                    "If the settings are not available due to restricted settings, see 'https://support.google.com/android/answer/12623953'.")
-                            .setPositiveButton("OK", new DialogInterface.OnClickListener() {
-                                public void onClick(DialogInterface dialog, int which) {
-                                    SystemClock.sleep(100);
-                                    MainActivity.this.runOnUiThread(askNotificationAccessRunnable);
-                                    dialog.dismiss();
-                                }
-                            }).show();
-                } catch (Exception e) {
-                    ToastUtils.makeToast("Please whitelist ESEL in the phone settings.");
-                }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, PERMISSION_REQUEST_CODE_POST_NOTIFICATIONS);
             }
         }
 
-}
+        requestNotificationAccess();
+        requestIgnoreBatteryOptimizations();
 
-    private void askForBatteryOptimizationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            final String packageName = getPackageName();
-            final PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                final Runnable askOptimizationRunnable = new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            final Intent intent = new Intent();
-                            intent.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                            intent.setData(Uri.parse("package:" + packageName));
+
+        exportDataButton = findViewById(R.id.button_exportdata);
+        mainTextView = findViewById(R.id.textview_main);
+
+        exportDataButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                EselLog.LogI("MainActivity", "Export Data button clicked.");
+                performExport();
+            }
+        });
+    }
+
+    private void requestNotificationAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP_MR1) {
+            String packageName = getPackageName();
+            if (!Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners").contains(packageName)) {
+                new AlertDialog.Builder(this)
+                        .setTitle("Accesso Notifiche Necessario")
+                        .setMessage("Eversense-Reader ha bisogno dell'accesso alle notifiche per leggere i dati dal tuo sensore. Per favore, abilita l'accesso nella schermata successiva.")
+                        .setPositiveButton("Abilita", (dialog, which) -> {
+                            Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
                             startActivity(intent);
-                        } catch (ActivityNotFoundException e) {
-                            final String msg = "Device does not appear to support battery optimization whitelisting!";
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    ToastUtils.makeToast("Device does not appear to support battery optimization whitelisting!");
-                                }
-                            });
-                        }
-                    }
-                };
+                        })
+                        .setNegativeButton("Annulla", (dialog, which) -> dialog.dismiss())
+                        .show();
+            }
+        }
+    }
 
-                try {
-                    AlertDialog.Builder builder = new AlertDialog.Builder(this);
-                    builder.setTitle("Please Allow Permission")
-                            .setMessage("ESEL needs battery optimalization whitelisting for proper performance")
-                            .setPositiveButton("OK", new DialogInterface.OnClickListener() {
-                                public void onClick(DialogInterface dialog, int which) {
-                                    SystemClock.sleep(100);
-                                    MainActivity.this.runOnUiThread(askOptimizationRunnable);
-                                    dialog.dismiss();
-                                }
-                            }).show();
-                } catch (Exception e) {
-                    ToastUtils.makeToast("Please whitelist ESEL in the phone settings.");
-                }
+    private void requestIgnoreBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE); // Riga 120
+            if (powerManager != null && !powerManager.isIgnoringBatteryOptimizations(getPackageName())) {
+                new AlertDialog.Builder(this)
+                        .setTitle("Ottimizzazione Batteria")
+                        .setMessage("Eversense-Reader deve essere escluso dall'ottimizzazione della batteria per funzionare correttamente in background e non perdere dati. Per favore, abilita l'opzione nella schermata successiva.")
+                        .setPositiveButton("Abilita", (dialog, which) -> {
+                            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                            intent.setData(Uri.parse("package:" + getPackageName()));
+                            startActivity(intent);
+                        })
+                        .setNegativeButton("Annulla", (dialog, which) -> dialog.dismiss())
+                        .show();
+            }
+        }
+    }
+
+
+    private void performExport() {
+        ReadReceiver.FullExport(this, new File(getExternalFilesDir(null), "esel_data_export.txt"), SP.getInt("max-sync-hours", 24));
+        EselLog.LogI("MainActivity", "Data export initiated to: " + new File(getExternalFilesDir(null), "esel_data_export.txt").getAbsolutePath());
+    }
+
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.main, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        int id = item.getItemId();
+        return super.onOptionsItemSelected(item);
+    }
+
+    @Override
+    public boolean onNavigationItemSelected(MenuItem item) {
+        int id = item.getItemId();
+
+        if (id == R.id.nav_settings) {
+            Intent intent = new Intent(this, Preferences.class);
+            startActivity(intent);
+        } else if (id == R.id.nav_home) {
+            Intent intent = new Intent(this, MainActivity.class);
+            startActivity(intent);
+        } else if (id == R.id.nav_errors) {
+            Intent intent = new Intent(this, LogActivity.class);
+            startActivity(intent);
+        }
+
+        DrawerLayout drawer = findViewById(R.id.drawer_layout);
+        drawer.closeDrawer(GravityCompat.START);
+        return true;
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (drawer.isDrawerOpen(GravityCompat.START)) {
+            drawer.closeDrawer(GravityCompat.START);
+        } else {
+            super.onBackPressed();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST_CODE_POST_NOTIFICATIONS) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                EselLog.LogI("MainActivity", "POST_NOTIFICATIONS permission granted.");
+            } else {
+                EselLog.LogW("MainActivity", "POST_NOTIFICATIONS permission denied.");
             }
         }
     }

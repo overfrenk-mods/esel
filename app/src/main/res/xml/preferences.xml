@@ -1,107 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
-<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
-    <SwitchPreference
-        android:defaultValue="false"
-        android:key="use_esdms"
-        android:summary="Scarica i dati mancanti dal portale EVERSENSE"
-        android:title="Abilitare per (backfill)" />
-
-    <EditTextPreference
-        android:defaultValue=""
-        android:key="es_username"
-        android:summary="Usare la stessa email dell'app EVERSENSE"
-        android:title="Email backfill" />
-
-    <EditTextPreference
-        android:defaultValue=""
-        android:inputType="textPassword"
-        android:key="es_password"
-        android:summary="Usare la stessa password dell'app EVERSENSE"
-        android:title="Password backfill" />
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto"> <SwitchPreference
+    app:defaultValue="true"
+    app:key="send_to_AAPS"
+    app:summary="Selezionare in AAPS &quot;MM640&quot; come sorgente BG"
+    app:title="Invia a AAPS e xDRIP" />
 
     <SwitchPreference
-        android:defaultValue="false"
-        android:key="esdms_us"
-        android:summary="NON USARE IN EUROPA"
-        android:title="EVERSENSE america (backfill)" />
+        app:defaultValue="false"
+        app:key="send_to_NS"
+        app:summary="Richiede NSClient o AAPS installato e configurato (Lasciare in off)"
+        app:title="Invia a NightScout" />
 
-    <SwitchPreference
-        android:defaultValue="false"
-        android:key="use_patched_es"
-        android:summary="Se selezionata abilita la lettura con app EVERSENSE modificata,se DISABILITATA abilita la lettura attraverso l'app UFFICIALE Eversense."
-        android:title="Selezionare SOLO per app MODIFICATA" />
+    <PreferenceCategory
+        app:title="Impostazioni Smoothing Dati Glicemici">
+        <SwitchPreference
+            app:defaultValue="false"
+            app:key="smooth_data"
+            app:summary="Smoothing x sensori rumorosi a fine vita"
+            app:title="Liscia i dati" />
 
-    <EditTextPreference
-        android:defaultValue="@string/max_sync_hours"
-        android:key="max-sync-hours"
-        android:summary="Quantità di ore da scaricare (da 1 ora a 24 ore)"
-        android:title="Ore da scaricare (backfill)" />
+        <EditTextPreference
+            app:defaultValue="0.3"
+            app:key="smooth_factor"
+            app:summary="Esponenziale(1=non filtra/0,1=filtra MOLTO default: 0.3)"
+            app:title="Fattore Smooth" />
 
-    <EditTextPreference
-        android:defaultValue="0"
-        android:key="auto-sync-interval"
-        android:summary="Indica ogni quante ore scarica le glicemie dal portale (0= MAI)"
-        android:title="Intervallo (backfill)" />
+        <EditTextPreference
+            app:defaultValue="0.5"
+            app:key="correction_factor"
+            app:summary="0= nessuna correzzione-1 correzzione massima default: 0.5)"
+            app:title="Fattore di correzzione" />
 
-    <SwitchPreference
-        android:defaultValue="true"
-        android:key="send_to_AAPS"
-        android:summary="Selezionare in AAPS &quot;MM640&quot; come sorgente BG"
-        android:title="Invia a AAPS e xDRIP" />
+        <EditTextPreference
+            app:defaultValue="0"
+            app:key="descent_factor"
+            app:summary="Valori accettati tra 0 e 1 dove 0 non ha effetto e 1 disabilita lo smoothing con valori in discesa"
+            app:title="Fattore discesa= disabilita lo smoothing" />
 
-    <SwitchPreference
-        android:defaultValue="false"
-        android:key="send_to_NS"
-        android:summary="Richiede NSClient o AAPS installato e configurato (Lasciare in off)"
-        android:title="Invia a NightScout" />
-
-    <SwitchPreference
-        android:defaultValue="false"
-        android:key="smooth_data"
-        android:summary="Smoothing x sensori rumorosi a fine vita"
-        android:title="Liscia i dati" />
-
-    <EditTextPreference
-        android:defaultValue="0.3"
-        android:key="smooth_factor"
-        android:summary="Esponenziale(1=non filtra/0,1=filtra MOLTO default: 0.3)"
-        android:title="Fattore Smooth" />
-
-    <EditTextPreference
-        android:defaultValue="0.5"
-        android:key="correction_factor"
-        android:summary="0= nessuna correzzione-1 correzzione massima default: 0.5)"
-        android:title="Fattore di correzzione" />
-
-    <EditTextPreference
-        android:defaultValue="0"
-        android:key="descent_factor"
-        android:summary="Valori accettati tra 0 e 1 dove 0 non ha effetto e 1 disabilita lo smoothing con valori in discesa"
-        android:title="Fattore discesa= disabilita lo smoothing" />
-
-    <EditTextPreference
-        android:defaultValue="65"
-        android:key="lower_limit"
-        android:summary="Smoothing disabilitato sotto una determinata soglia. Default: 65"
-        android:title="Limite BASSO" />
-
-    <EditTextPreference
-        android:defaultValue="0"
-        android:key="shift_days"
-        android:summary="Shifts measurements by given days to future. Useful if the clock of this smartphone is set to a time in the past. Default: 0"
-        android:title="Shift by days to future ( NON MODIFICARE )" />
-
-    <SwitchPreference
-        android:defaultValue="false"
-        android:key="overwrite_bg"
-        android:summary="Send a constant value as BG reading. E.g. for debugging if no CGM is present."
-        android:title="Send constant value for debugging ( NON MODIFICARE )" />
-
-    <EditTextPreference
-        android:defaultValue="120"
-        android:key="bg_value"
-        android:summary="Constant value which is send. Default: 120"
-        android:title="BG value to send ( NON MODIFICARE )" />
-
+        <EditTextPreference
+            app:defaultValue="65"
+            app:key="lower_limit"
+            app:summary="Smoothing disabilitato sotto una determinata soglia. Default: 65"
+            app:title="Limite BASSO" />
+    </PreferenceCategory>
 
 </PreferenceScreen>
