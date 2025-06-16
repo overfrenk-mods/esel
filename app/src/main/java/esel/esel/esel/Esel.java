@@ -1,7 +1,8 @@
+// ---------------- INIZIO CODICE COMPLETO E MODIFICATO PER Esel.java ----------------
 package esel.esel.esel;
 
 import android.app.Application;
-import android.content.Context; // L'import Context è stato aggiunto prima, lo mantengo per chiarezza
+import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
 import androidx.core.content.ContextCompat;
@@ -23,6 +24,11 @@ public class Esel extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+
+        // ---> QUESTA È LA RIGA CHE ABBIAMO AGGIUNTO <---
+        // Inizializza il nostro sistema di logging come primissima cosa.
+        EselLog.init(this);
+
         sInstance = this;
         sResources = getResources();
         EselLog.LogI("EselApp", "Application onCreate");
@@ -70,3 +76,4 @@ public class Esel extends Application {
         stopDataMonitorService();
     }
 }
+// ---------------- FINE CODICE COMPLETO E MODIFICATO PER Esel.java ----------------

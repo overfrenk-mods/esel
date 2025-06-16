@@ -1,124 +1,89 @@
+// ---------------- INIZIO CODICE COMPLETO E MODIFICATO PER EsNotificationListener.java ----------------
 package esel.esel.esel.datareader;
 
 import android.app.Notification;
+import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Collections;
-import java.util.Comparator;
 
 import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
 
 /**
- * Creato da OverFrenK il 24-02-24.
+ * Servizio che ascolta le notifiche di sistema, specificamente quelle dell'app Eversense,
+ * per catturare i dati della glicemia in tempo reale.
+ * La logica è stata modernizzata per usare notification.extras invece del tickerText obsoleto.
  */
 public class EsNotificationListener extends NotificationListenerService {
 
-    private static SGV latestStoredSgv = null;
-    private static long lastSentToApsTimestamp = 0;
-
     private static final String TAG = "EsNotificationListener";
 
-    private static final long FIVE_MINUTES_MS = 5 * 60 * 1000L;
-    private static final long SYNC_TOLERANCE_MS = 10 * 1000L;
-    private static final long SYNC_GAP_THRESHOLD_MS = 10 * 60 * 1000L;
+    // Unico punto di stato: l'ultimo valore SGV catturato dalla notifica e non ancora processato.
+    // 'volatile' assicura che le modifiche siano visibili a tutti i thread.
+    private static volatile SGV latestStoredSgv = null;
+
+    // Timestamp dell'ultimo valore che è stato inviato ai broadcaster (es. ad AAPS).
+    private static volatile long lastSentToApsTimestamp = 0;
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
-        EselLog.LogI(TAG, "onNotificationPosted: Notifica ricevuta da package: " + sbn.getPackageName());
-
+        // Ignoriamo tutto se siamo in modalità "Patched", che usa un altro meccanismo.
         if (SP.getBoolean("use_patched_es", false)) {
-            EselLog.LogV(TAG, "Notifica ricevuta ma modalità patch attiva, ignoro.");
             return;
         }
 
-        if (sbn.getPackageName().equals("com.senseonics.gen12androidapp") ||
-                sbn.getPackageName().equals("com.senseonics.androidapp") ||
-                sbn.getPackageName().equals("com.senseonics.eversense365.us") ||
-                sbn.getPackageName().contains("com.senseonics.")) {
+        // Controlliamo se la notifica proviene da uno dei package dell'app Eversense.
+        String packageName = sbn.getPackageName();
+        if (packageName != null && packageName.startsWith("com.senseonics")) {
             Notification notification = sbn.getNotification();
-            if (notification != null && notification.tickerText != null) {
-                try {
-                    long currentNotificationTimestamp = notification.when;
-
-                    long lastEversenseDataTimestamp = SP.getLong("last_eversense_data_timestamp", 0L);
-
-                    boolean isValidTimeSlot = false;
-
-                    if (lastEversenseDataTimestamp == 0L || (currentNotificationTimestamp - lastEversenseDataTimestamp) >= FIVE_MINUTES_MS) {
-                        isValidTimeSlot = true;
-                        EselLog.LogI(TAG, "Notifica in nuovo slot 5min o primo allineamento. Timestamp: " + currentNotificationTimestamp);
-                    } else {
-                        long timeSinceLastSlot = currentNotificationTimestamp - lastEversenseDataTimestamp;
-                        if (timeSinceLastSlot < FIVE_MINUTES_MS) {
-                            EselLog.LogV(TAG, "Notifica ricevuta nello stesso slot di 5 minuti. Scarto. Attuale: " + currentNotificationTimestamp + ", Ultimo Slot: " + lastEversenseDataTimestamp);
-                        } else {
-                            EselLog.LogW(TAG, "Notifica inaspettata. Scarto. Attuale: " + currentNotificationTimestamp + ", Ultimo Slot: " + lastEversenseDataTimestamp);
-                        }
-                    }
-
-                    if (isValidTimeSlot) {
-                        if (latestStoredSgv != null && currentNotificationTimestamp <= latestStoredSgv.timestamp) {
-                            EselLog.LogW(TAG, "Salto notifica più vecchia di quella già memorizzata. Attuale: " + currentNotificationTimestamp + ", Memorizzata: " + latestStoredSgv.timestamp);
-                            return;
-                        }
-
-                        if (currentNotificationTimestamp <= lastSentToApsTimestamp) {
-                            EselLog.LogW(TAG, "Salto notifica con timestamp <= ultimo inviato ad APS. Attuale: " + currentNotificationTimestamp + ", Ultimo inviato: " + lastSentToApsTimestamp);
-                            return;
-                        }
-
-                        EselLog.LogI(TAG, "Processo notifica Eversense valida per SGV: " + notification.tickerText);
-                        SGV sgv = generateSGV(notification, 0);
-                        if (sgv != null) {
-                            synchronized (EsNotificationListener.class) {
-                                latestStoredSgv = sgv;
-                            }
-                            SP.putLong("last_eversense_data_timestamp", sgv.timestamp);
-                            EselLog.LogI(TAG, "latestStoredSgv aggiornato: " + sgv.value + " a " + sgv.timestamp);
-                        } else {
-                            EselLog.LogW(TAG, "generateSGV ha restituito null per la notifica: " + notification.tickerText);
-                        }
-                    }
-
-                } catch (NumberFormatException err) {
-                    EselLog.LogE(TAG, "NumberFormatException in onNotificationPosted per tickerText: " + notification.tickerText + ", Errore: " + err.getMessage());
-                } catch (Exception e) {
-                    EselLog.LogE(TAG, "Eccezione generica in onNotificationPosted: " + e.getMessage());
-                }
-            } else {
-                EselLog.LogV(TAG, "Notifica o tickerText è nullo per il package: " + sbn.getPackageName());
+            if (notification == null) {
+                EselLog.LogV(TAG, "Notifica nulla ricevuta da: " + packageName);
+                return;
             }
-        } else {
-            EselLog.LogV(TAG, "Salto la notifica da un package non-Eversense: " + sbn.getPackageName());
+
+            // Estraiamo il valore SGV dalla notifica usando il metodo moderno e affidabile.
+            SGV sgv = generateSGVFromNotification(notification);
+
+            if (sgv != null) {
+                EselLog.LogI(TAG, "SGV estratto con successo: " + sgv.value + " @ " + sgv.timestamp);
+
+                // Usiamo un blocco synchronized per aggiornare le variabili statiche in modo sicuro.
+                synchronized (EsNotificationListener.class) {
+                    // Verifichiamo se il valore è nuovo e valido prima di memorizzarlo.
+                    if (latestStoredSgv == null || sgv.timestamp > latestStoredSgv.timestamp) {
+                        if (sgv.timestamp > lastSentToApsTimestamp) {
+                            latestStoredSgv = sgv;
+                            EselLog.LogI(TAG, "Nuovo SGV memorizzato. In attesa di essere prelevato da ReadReceiver.");
+                        } else {
+                            EselLog.LogW(TAG, "SGV scartato perché il suo timestamp (" + sgv.timestamp + ") è <= all'ultimo inviato (" + lastSentToApsTimestamp + ").");
+                        }
+                    } else {
+                        EselLog.LogW(TAG, "SGV scartato perché il suo timestamp (" + sgv.timestamp + ") non è più recente di quello già memorizzato (" + latestStoredSgv.timestamp + ").");
+                    }
+                }
+            }
         }
     }
 
-    @Override
-    public void onListenerConnected() {
-        EselLog.LogI(TAG, "Notification Listener connesso!");
-    }
-
-    @Override
-    public void onListenerDisconnected() {
-        EselLog.LogW(TAG, "Notification Listener disconnesso!");
-    }
-
+    /**
+     * Metodo chiamato dal nostro ReadReceiver per prelevare l'ultimo dato disponibile.
+     * Questo disaccoppia la ricezione dalla processazione.
+     */
     public static List<SGV> getData(int number, long lastReadingTime) {
         List<SGV> result = new ArrayList<>();
         SGV sgvToSend = null;
 
         synchronized (EsNotificationListener.class) {
             if (latestStoredSgv != null) {
+                // Forniamo il dato solo se è più recente sia dell'ultima lettura processata,
+                // sia dell'ultimo dato già inviato ad AAPS/xDrip.
                 if (latestStoredSgv.timestamp > lastReadingTime && latestStoredSgv.timestamp > lastSentToApsTimestamp) {
                     sgvToSend = latestStoredSgv;
-                    EselLog.LogI(TAG, "getData ha trovato un nuovo SGV più fresco da inviare: " + sgvToSend.value + " a " + sgvToSend.timestamp);
-                    latestStoredSgv = null;
-                } else {
-                    EselLog.LogV(TAG, "getData ha trovato un SGV ma non è più fresco o è già stato inviato. Salto. Valore: " + latestSgv.value + ", Timestamp: " + latestSgv.timestamp);
+                    EselLog.LogI(TAG, "getData fornisce un nuovo SGV a ReadReceiver: " + sgvToSend.value + " @ " + sgvToSend.timestamp);
+                    // Una volta "prelevato", lo nullifichiamo per non inviarlo di nuovo.
                     latestStoredSgv = null;
                 }
             }
@@ -126,67 +91,81 @@ public class EsNotificationListener extends NotificationListenerService {
 
         if (sgvToSend != null) {
             result.add(sgvToSend);
-        } else {
-            EselLog.LogV(TAG, "getData restituisce lista vuota (nessun nuovo SGV da inviare).");
         }
 
         return result;
     }
 
+    /**
+     * Metodo per aggiornare il timestamp dell'ultimo invio, chiamato da ReadReceiver.
+     */
     public static void setLastSentToApsTimestamp(long timestamp) {
-        lastSentToApsTimestamp = timestamp;
-        EselLog.LogI(TAG, "lastSentToApsTimestamp aggiornato a: " + timestamp);
+        synchronized (EsNotificationListener.class) {
+            // Assicuriamoci di non andare mai indietro nel tempo
+            if(timestamp > lastSentToApsTimestamp) {
+                lastSentToApsTimestamp = timestamp;
+                EselLog.LogI(TAG, "Timestamp dell'ultimo invio aggiornato a: " + timestamp);
+            }
+        }
     }
 
-    public static SGV generateSGV(Notification notification, int record) {
-        long timestamp = notification.when;
-        CharSequence tickerTextCharSeq = notification.tickerText;
-        if (tickerTextCharSeq == null) {
-            EselLog.LogE(TAG, "Ticker text è nullo per la notifica con timestamp: " + timestamp);
+    /**
+     * NUOVA FUNZIONE MODERNA: Estrae il valore SGV dagli "extras" della notifica.
+     * Questo è il metodo robusto per le versioni recenti di Android.
+     */
+    private SGV generateSGVFromNotification(Notification notification) {
+        Bundle extras = notification.extras;
+        if (extras == null) {
+            EselLog.LogW(TAG, "Notification.extras è nullo.");
             return null;
         }
-        String tickerText = tickerTextCharSeq.toString();
 
+        // Il testo principale della notifica è il candidato più probabile per il valore BG.
+        CharSequence textChars = extras.getCharSequence(Notification.EXTRA_TEXT);
+        if (textChars == null) {
+            EselLog.LogW(TAG, "Notification.EXTRA_TEXT non trovato negli extras.");
+            return null;
+        }
+
+        String text = textChars.toString();
+        // Spesso il valore è la prima "parola" del testo. Es. "123 mg/dL →"
+        String[] parts = text.split(" ");
+        if (parts.length == 0) {
+            EselLog.LogW(TAG, "Testo della notifica vuoto: '" + text + "'");
+            return null;
+        }
+
+        String valueString = parts[0];
         int value;
+
         try {
-            if (tickerText.contains(".") || tickerText.contains(",")) {
-                String formattedTickerText = tickerText.replace(",", ".");
-                float valuef = Float.parseFloat(formattedTickerText);
-                value = SGV.Convert(valuef);
+            // Pulizia e conversione del valore
+            if (valueString.contains(".") || valueString.contains(",")) {
+                String formattedValue = valueString.replace(",", ".");
+                float valuef = Float.parseFloat(formattedValue);
+                value = SGV.Convert(valuef); // Converte da mmol/L a mg/dL se necessario
             } else {
-                value = Integer.parseInt(tickerText);
+                value = Integer.parseInt(valueString);
             }
         } catch (NumberFormatException e) {
-            EselLog.LogE(TAG, "NumberFormatException in generateSGV per tickerText: '" + tickerText + "', Errore: " + e.getMessage());
+            EselLog.LogE(TAG, "Impossibile convertire il valore dalla notifica. Testo: '" + text + "', Errore: " + e.getMessage());
             return null;
         }
 
-        // ********************************************************************************
-        // INIZIO BLOCCO COMMENTATO (Rimosso per via della gestione con latestStoredSgv)
-        // ********************************************************************************
-        /*
-        if (lastReadings.size() > 0) { // lastReadings non è più una lista accumulativa in questo file
-            long five_min = 300000l;
-            SGV oldSgv = null;
-            synchronized (lastReadings) {
-                if (!lastReadings.isEmpty()) {
-                    oldSgv = lastReadings.get(lastReadings.size() - 1);
-                }
-            }
-            if(oldSgv != null) {
-                long lastreadingtime = oldSgv.timestamp;
-                int lastreadingvalue = oldSgv.raw;
-                if (value == lastreadingvalue && (timestamp - lastreadingtime) < (FIVE_MINUTES_MS * 0.9) ) {
-                    EselLog.LogW(TAG, "Salto SGV duplicato o troppo frequente (in generateSGV): " + value + " a " + timestamp);
-                    return null;
-                }
-            }
-        }
-        */
-        // ********************************************************************************
-        // FINE BLOCCO COMMENTATO
-        // ********************************************************************************
+        return new SGV(value, notification.when, 0);
+    }
 
-        return new SGV(value, timestamp, record);
+    // Metodi di lifecycle standard del servizio
+    @Override
+    public void onListenerConnected() {
+        super.onListenerConnected();
+        EselLog.LogI(TAG, "Notification Listener connesso e operativo.");
+    }
+
+    @Override
+    public void onListenerDisconnected() {
+        super.onListenerDisconnected();
+        EselLog.LogW(TAG, "Notification Listener disconnesso!");
     }
 }
+// ---------------- FINE CODICE COMPLETO E MODIFICATO PER EsNotificationListener.java ----------------
