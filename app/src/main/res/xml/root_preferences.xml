@@ -1,0 +1,61 @@
+<PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory app:title="Invio Dati">
+
+        <SwitchPreferenceCompat
+            app:key="send_to_AAPS"
+            app:title="Invia a AAPS e xDrip"
+            app:summary="Se abilitato, invia i dati BG. Selezionare 'MM640' come sorgente BG in AAPS/xDrip."
+            app:defaultValue="true" />
+
+        <SwitchPreferenceCompat
+            app:key="send_to_NS"
+            app:title="Invia a NightScout"
+            app:summary="Richiede NSClient o AAPS installato e configurato."
+            app:defaultValue="false" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory app:title="Algoritmo di Smoothing">
+
+        <SwitchPreferenceCompat
+            app:key="smooth_data"
+            app:title="Attiva Smoothing Dati"
+            app:summary="Utile per sensori 'rumorosi' o a fine vita per stabilizzare le letture."
+            app:defaultValue="false" />
+
+        <EditTextPreference
+            app:key="smooth_factor"
+            app:title="Fattore Smoothing"
+            app:summary="Valore tra 0.1 (molto filtrato) e 1 (nessun filtro)."
+            app:defaultValue="0.3"
+            app:dialogTitle="Fattore Smoothing"
+            app:dependency="smooth_data" />
+
+        <EditTextPreference
+            app:key="correction_factor"
+            app:title="Fattore Correzione"
+            app:summary="Valore tra 0 (nessuna correzione) e 1 (massima correzione)."
+            app:defaultValue="0.5"
+            app:dialogTitle="Fattore Correzione"
+            app:dependency="smooth_data" />
+
+        <EditTextPreference
+            app:key="descent_factor"
+            app:title="Fattore Discesa"
+            app:summary="Disabilita lo smoothing quando i valori scendono (0=nessun effetto, 1=disabilita completamente)."
+            app:defaultValue="0"
+            app:dialogTitle="Fattore Discesa"
+            app:dependency="smooth_data" />
+
+        <EditTextPreference
+            app:key="lower_limit"
+            app:title="Limite Inferiore Smoothing"
+            app:summary="Lo smoothing viene disabilitato sotto questo valore di glicemia."
+            app:defaultValue="65"
+            app:dialogTitle="Limite Inferiore (mg/dL)"
+            app:dependency="smooth_data" />
+
+    </PreferenceCategory>
+
+</PreferenceScreen>

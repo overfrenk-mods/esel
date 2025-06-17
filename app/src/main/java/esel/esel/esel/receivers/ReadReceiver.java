@@ -1,4 +1,4 @@
-// ---------------- INIZIO CODICE COMPLETO E CORRETTO PER ReadReceiver.java ----------------
+// ---------------- INIZIO CODICE COMPLETO E AGGIORNATO PER ReadReceiver.java ----------------
 package esel.esel.esel.receivers;
 
 import android.content.BroadcastReceiver;
@@ -8,13 +8,6 @@ import android.os.PowerManager;
 
 import androidx.core.content.ContextCompat;
 
-import org.json.JSONArray;
-import org.json.JSONException;
-
-import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -32,6 +25,10 @@ import esel.esel.esel.util.SP;
 public class ReadReceiver extends BroadcastReceiver {
 
     public static final long REPEAT_TIME = 5 * 60 * 1000L; // 5 minuti
+
+    // NUOVA COSTANTE: Se un valore identico arriva entro questo intervallo, è un duplicato.
+    // Impostato a 4 minuti (240000 ms) per essere sicuri di non scartare la lettura successiva dei 5 minuti.
+    private static final long DUPLICATE_THRESHOLD_MS = 4 * 60 * 1000L;
 
     private static final String TAG = "ReadReceiver";
 
@@ -53,22 +50,19 @@ public class ReadReceiver extends BroadcastReceiver {
         EselLog.LogV(TAG, "CallBroadcast eseguito.");
         try {
             SP.putLong("readReceiver-called", System.currentTimeMillis());
-
-            // CORREZIONE: Aggiunta la 'L' a '0' per specificare che è un tipo long.
             long lastReadingTime = SP.getLong("lastReadingTime", 0L);
-
             broadcastData(context, lastReadingTime);
         } catch (Exception e) {
             EselLog.LogE(TAG, "Errore in CallBroadcast: " + e.getMessage());
         }
     }
 
-    public static void FullExport(Context context, File file, int syncHours){
+    // Le funzioni di Esportazione e Scrittura rimangono giustamente disabilitate per ora
+    public static void FullExport(Context context, java.io.File file, int syncHours){
         String msg = "Funzione di Esportazione Disabilitata. Richiede un aggiornamento alle nuove API di Android.";
         EselLog.LogW(TAG, msg,true);
     }
-
-    private static void WriteData(Context context, File file, String data){
+    private static void WriteData(Context context, java.io.File file, String data){
         EselLog.LogW(TAG, "WriteData è disabilitato.");
     }
 
@@ -77,17 +71,12 @@ public class ReadReceiver extends BroadcastReceiver {
         try {
             while (true) {
                 List<SGV> valueArray = EsNotificationListener.getData(1, lastReadingTime);
-
-                if (valueArray.isEmpty()) {
-                    break;
-                }
+                if (valueArray.isEmpty()) break;
 
                 valuesProcessed += ProcesssValues(valueArray);
 
                 long newLastReadingTime = SP.getLong("lastReadingTime", lastReadingTime);
-                if (newLastReadingTime == lastReadingTime) {
-                    break;
-                }
+                if (newLastReadingTime == lastReadingTime) break;
                 lastReadingTime = newLastReadingTime;
             }
         } catch (Exception e) {
@@ -111,12 +100,23 @@ public class ReadReceiver extends BroadcastReceiver {
 
         for (SGV sgv : valueArray) {
             long oldTime = SP.getLong("lastReadingTime", -1L);
+            int oldValue = SP.getInt("lastReadingValue", -1);
 
-            boolean isNewValue = oldTime != sgv.timestamp;
+            boolean isNewValueByTime = oldTime != sgv.timestamp;
             boolean isFutureValue = sgv.timestamp > currentTime + (5 * 60 * 1000);
 
-            if (isNewValue && !isFutureValue) {
-                int oldValue = SP.getInt("lastReadingValue", -1);
+            if (isNewValueByTime && !isFutureValue) {
+
+                // --- NUOVA LOGICA ANTI-DUPLICAZIONE ---
+                boolean isDuplicateReading = (sgv.value == oldValue && (sgv.timestamp - oldTime) < DUPLICATE_THRESHOLD_MS);
+                if (isDuplicateReading) {
+                    EselLog.LogW(TAG, "Valore duplicato scartato. Valore: " + sgv.value + ". Tempo trascorso: " + (sgv.timestamp - oldTime) / 1000 + "s.");
+                    // Aggiorniamo comunque il timestamp per non rimanere bloccati, ma non inviamo il valore.
+                    SP.putLong("lastReadingTime", sgv.timestamp);
+                    continue; // Salta al prossimo valore nella lista
+                }
+                // --- FINE LOGICA ANTI-DUPLICAZIONE ---
+
                 boolean hasTimeGap = (sgv.timestamp - oldTime) > 12 * 60 * 1000L;
 
                 if (sgv.value >= 39) {
@@ -147,4 +147,4 @@ public class ReadReceiver extends BroadcastReceiver {
         return result;
     }
 }
-// ---------------- FINE CODICE COMPLETO E CORRETTO PER ReadReceiver.java ----------------
+// ---------------- FINE CODICE COMPLETO E AGGIORNATO PER ReadReceiver.java ----------------
