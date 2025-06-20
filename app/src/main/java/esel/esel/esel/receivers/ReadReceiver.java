@@ -1,10 +1,14 @@
-// ---------------- INIZIO CODICE COMPLETO E AGGIORNATO PER ReadReceiver.java ----------------
+// ---------------- INIZIO CODICE OTTIMIZZATO PER ReadReceiver.java ----------------
 package esel.esel.esel.receivers;
 
+import android.app.AlarmManager;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.PowerManager;
+import android.os.SystemClock;
 
 import androidx.core.content.ContextCompat;
 
@@ -24,26 +28,58 @@ import esel.esel.esel.util.SP;
 
 public class ReadReceiver extends BroadcastReceiver {
 
-    public static final long REPEAT_TIME = 5 * 60 * 1000L; // 5 minuti
-
-    // NUOVA COSTANTE: Se un valore identico arriva entro questo intervallo, è un duplicato.
-    // Impostato a 4 minuti (240000 ms) per essere sicuri di non scartare la lettura successiva dei 5 minuti.
+    public static final long REPEAT_TIME = 5 * 60 * 1000L;
     private static final long DUPLICATE_THRESHOLD_MS = 4 * 60 * 1000L;
-
     private static final String TAG = "ReadReceiver";
+    public static final int ALARM_REQUEST_CODE = 123;
 
     @Override
     public synchronized void onReceive(Context context, Intent intent) {
         PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
-        PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Esel:ReadReceiver:Broadcast");
-        wl.acquire(20 * 1000L);
+        // --- MODIFICA DI OTTIMIZZAZIONE ---
+        // Ridotto il tempo del WakeLock da 30 a 10 secondi. È più che sufficiente
+        // per completare il lavoro e riduce il consumo di batteria.
+        PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Esel:ReadReceiverWakelock");
+        wl.acquire(10 * 1000L);
 
-        EselLog.LogV(TAG, "ReadReceiver onReceive. Avvio il DataMonitorService per assicurarmi che sia attivo.");
+        EselLog.LogI(TAG, "ReadReceiver onReceive - Sveglia esatta ricevuta.");
+
+        new Thread(() -> {
+            try {
+                CallBroadcast(context.getApplicationContext());
+            } finally {
+                scheduleNextExactAlarm(context.getApplicationContext());
+                if (wl.isHeld()) {
+                    wl.release();
+                    EselLog.LogV(TAG, "Wakelock rilasciato.");
+                }
+            }
+        }).start();
+
         ContextCompat.startForegroundService(context, new Intent(context, DataMonitorService.class));
+    }
 
-        if (wl.isHeld()) {
-            wl.release();
+    private void scheduleNextExactAlarm(Context context) {
+        AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        PendingIntent pendingIntent = getPendingIntent(context);
+        long triggerAtMillis = SystemClock.elapsedRealtime() + REPEAT_TIME;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAtMillis, pendingIntent);
+        } else {
+            alarmManager.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, triggerAtMillis, pendingIntent);
         }
+        EselLog.LogI(TAG, "Prossima sveglia esatta programmata tra " + REPEAT_TIME / 1000 + " secondi.");
+    }
+
+    public static void cancelAlarm(Context context) {
+        AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        alarmManager.cancel(getPendingIntent(context));
+        EselLog.LogI(TAG, "Sveglia esatta cancellata.");
+    }
+
+    private static PendingIntent getPendingIntent(Context context) {
+        Intent intent = new Intent(context, ReadReceiver.class);
+        return PendingIntent.getBroadcast(context, ALARM_REQUEST_CODE, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
     public void CallBroadcast(Context context){
@@ -57,24 +93,13 @@ public class ReadReceiver extends BroadcastReceiver {
         }
     }
 
-    // Le funzioni di Esportazione e Scrittura rimangono giustamente disabilitate per ora
-    public static void FullExport(Context context, java.io.File file, int syncHours){
-        String msg = "Funzione di Esportazione Disabilitata. Richiede un aggiornamento alle nuove API di Android.";
-        EselLog.LogW(TAG, msg,true);
-    }
-    private static void WriteData(Context context, java.io.File file, String data){
-        EselLog.LogW(TAG, "WriteData è disabilitato.");
-    }
-
     public int broadcastData(Context context, long lastReadingTime) {
         int valuesProcessed = 0;
         try {
             while (true) {
                 List<SGV> valueArray = EsNotificationListener.getData(1, lastReadingTime);
                 if (valueArray.isEmpty()) break;
-
                 valuesProcessed += ProcesssValues(valueArray);
-
                 long newLastReadingTime = SP.getLong("lastReadingTime", lastReadingTime);
                 if (newLastReadingTime == lastReadingTime) break;
                 lastReadingTime = newLastReadingTime;
@@ -83,13 +108,8 @@ public class ReadReceiver extends BroadcastReceiver {
             EselLog.LogE(TAG, "Errore in broadcastData: " + e.getMessage());
             e.printStackTrace();
         }
-
-        if (valuesProcessed > 0) {
-            EselLog.LogI(TAG, "Sincronizzazione completata. Processati " + valuesProcessed + " nuovi valori.");
-        } else {
-            EselLog.LogV(TAG, "Nessun nuovo valore da sincronizzare.");
-        }
-
+        if (valuesProcessed > 0) { EselLog.LogI(TAG, "Sincronizzazione completata. Processati " + valuesProcessed + " nuovi valori."); }
+        else { EselLog.LogV(TAG, "Nessun nuovo valore da sincronizzare."); }
         return valuesProcessed;
     }
 
@@ -102,22 +122,18 @@ public class ReadReceiver extends BroadcastReceiver {
             long oldTime = SP.getLong("lastReadingTime", -1L);
             int oldValue = SP.getInt("lastReadingValue", -1);
 
+            boolean hasTimeGap = (oldTime > 0) && (sgv.timestamp - oldTime) > 12 * 60 * 1000L;
+
             boolean isNewValueByTime = oldTime != sgv.timestamp;
             boolean isFutureValue = sgv.timestamp > currentTime + (5 * 60 * 1000);
 
             if (isNewValueByTime && !isFutureValue) {
-
-                // --- NUOVA LOGICA ANTI-DUPLICAZIONE ---
                 boolean isDuplicateReading = (sgv.value == oldValue && (sgv.timestamp - oldTime) < DUPLICATE_THRESHOLD_MS);
                 if (isDuplicateReading) {
-                    EselLog.LogW(TAG, "Valore duplicato scartato. Valore: " + sgv.value + ". Tempo trascorso: " + (sgv.timestamp - oldTime) / 1000 + "s.");
-                    // Aggiorniamo comunque il timestamp per non rimanere bloccati, ma non inviamo il valore.
+                    EselLog.LogW(TAG, "Valore duplicato scartato (stesso valore, intervallo < 4 min). Valore: " + sgv.value);
                     SP.putLong("lastReadingTime", sgv.timestamp);
-                    continue; // Salta al prossimo valore nella lista
+                    continue;
                 }
-                // --- FINE LOGICA ANTI-DUPLICAZIONE ---
-
-                boolean hasTimeGap = (sgv.timestamp - oldTime) > 12 * 60 * 1000L;
 
                 if (sgv.value >= 39) {
                     boolean enable_smooth = SP.getBoolean("smooth_data", false) && !hasTimeGap;
@@ -132,6 +148,11 @@ public class ReadReceiver extends BroadcastReceiver {
                     }
 
                     try {
+                        if (sgv.timestamp <= EsNotificationListener.getLastSentToApsTimestamp()) {
+                            EselLog.LogW(TAG, "Invio saltato dal controllo finale. Timestamp già inviato: " + sgv.timestamp);
+                            continue;
+                        }
+
                         EselLog.LogI(TAG, "Invio valore: " + sgv.value + " | timestamp: " + df.format(new Date(sgv.timestamp)));
                         LocalBroadcaster.broadcast(sgv, true);
                         EsNotificationListener.setLastSentToApsTimestamp(sgv.timestamp);
@@ -146,5 +167,7 @@ public class ReadReceiver extends BroadcastReceiver {
         }
         return result;
     }
+
+    public static void FullExport(Context context, java.io.File file, int syncHours){ EselLog.LogW(TAG, "Funzione di Esportazione Disabilitata.",true); }
+    private static void WriteData(Context context, java.io.File file, String data){ EselLog.LogW(TAG, "WriteData è disabilitato."); }
 }
-// ---------------- FINE CODICE COMPLETO E AGGIORNATO PER ReadReceiver.java ----------------

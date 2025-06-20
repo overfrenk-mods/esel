@@ -1,47 +1,60 @@
-// ---------------- INIZIO CODICE PER LogActivity.java ----------------
+// Codice da incollare in LogActivity.java
 package esel.esel.esel;
 
 import android.os.Bundle;
 import android.widget.TextView;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.appcompat.widget.Toolbar;
 import androidx.lifecycle.Observer;
 import java.util.List;
 
-public class LogActivity extends MenuActivity {
+public class LogActivity extends AppCompatActivity {
 
-    private TextView textViewValue;
+    private TextView textViewLogContent;
     private AppLogger appLogger;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Usa il nuovo layout che abbiamo definito
         setContentView(R.layout.activity_errors);
 
-        textViewValue = findViewById(R.id.textview_main);
+        // Imposta la Toolbar e il tasto "Indietro"
+        Toolbar toolbar = findViewById(R.id.toolbar_log);
+        setSupportActionBar(toolbar);
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+            getSupportActionBar().setTitle("Log Applicazione");
+        }
 
-        // Ottieni l'istanza del nostro nuovo gestore di log
+        textViewLogContent = findViewById(R.id.textview_log_content);
+
+        // Ottieni l'istanza del nostro logger
         appLogger = AppLogger.getInstance(getApplicationContext());
 
-        // Imposta un Observer sul LiveData dei log.
-        // Questo blocco di codice verrà eseguito automaticamente ogni volta che un nuovo log viene aggiunto,
-        // in modo sicuro e senza rischi di crash, anche se il log viene da un servizio in background.
-        final Observer<List<String>> logObserver = new Observer<List<String>>() {
-            @Override
-            public void onChanged(List<String> logLines) {
-                // Unisci la lista di stringhe in un unico testo per la TextView
-                // Usiamo StringBuilder per efficienza
-                if (logLines == null) return;
-                StringBuilder sb = new StringBuilder();
-                for (String line : logLines) {
-                    sb.append(line).append("\n");
-                }
-                textViewValue.setText(sb.toString());
+        // Imposta un Observer per ricevere i log e mostrarli nella TextView
+        // Questo è lo stesso meccanismo sicuro che avevamo preparato in passato
+        final Observer<List<String>> logObserver = logLines -> {
+            if (logLines == null || logLines.isEmpty()) {
+                textViewLogContent.setText("Nessun log da mostrare.");
+                return;
             }
+            // Uniamo tutte le righe di log in un unico testo
+            StringBuilder sb = new StringBuilder();
+            for (String line : logLines) {
+                sb.append(line).append("\n");
+            }
+            textViewLogContent.setText(sb.toString());
         };
 
-        // Collega l'observer al LiveData.
-        // Android gestirà automaticamente la rimozione dell'observer quando l'activity viene distrutta,
-        // prevenendo memory leak.
+        // Collega l'observer al LiveData dei log
         appLogger.getLogs().observe(this, logObserver);
     }
+
+    // Gestisce il click sul tasto "Indietro" nella Toolbar
+    @Override
+    public boolean onSupportNavigateUp() {
+        onBackPressed(); // Torna alla schermata precedente
+        return true;
+    }
 }
-// ---------------- FINE CODICE PER LogActivity.java ----------------

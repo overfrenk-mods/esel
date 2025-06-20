@@ -7,7 +7,6 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
 
@@ -35,13 +34,14 @@
         <activity android:name=".LogActivity"
             android:theme="@style/AppTheme"/>
 
-        <receiver android:name=".receivers.ReadReceiver" android:exported="true"/>
-        <receiver android:name=".receivers.KeepAliveReceiver" android:exported="true"/>
+        <receiver android:name=".receivers.ReadReceiver" android:exported="false"/>
+
         <receiver android:name=".receivers.AutostartReceiver" android:enabled="true" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
         <receiver
             android:name=".receivers.AppUpdateReceiver"
             android:enabled="true"
