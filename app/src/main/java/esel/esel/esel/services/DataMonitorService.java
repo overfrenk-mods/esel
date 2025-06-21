@@ -9,10 +9,8 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
-
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
-
 import esel.esel.esel.R;
 import esel.esel.esel.util.EselLog;
 
@@ -38,7 +36,6 @@ public class DataMonitorService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         EselLog.LogI(TAG, "DataMonitorService avviato e attivo.");
-        // Non fa più nulla attivamente, serve solo a mantenere l'app viva.
         return START_STICKY;
     }
 
