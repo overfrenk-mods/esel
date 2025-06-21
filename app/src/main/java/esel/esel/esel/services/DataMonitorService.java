@@ -1,3 +1,4 @@
+// Codice da incollare in DataMonitorService.java
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -13,7 +14,6 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import esel.esel.esel.R;
-import esel.esel.esel.receivers.ReadReceiver;
 import esel.esel.esel.util.EselLog;
 
 public class DataMonitorService extends Service {
@@ -25,7 +25,7 @@ public class DataMonitorService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        EselLog.LogI(TAG, "DataMonitorService onCreate. Preparazione del servizio in primo piano.");
+        EselLog.LogI(TAG, "DataMonitorService onCreate. Avvio in modalità Foreground.");
         createNotificationChannel();
         Notification notification = buildNotification();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -37,16 +37,14 @@ public class DataMonitorService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        EselLog.LogI(TAG, "DataMonitorService onStartCommand. Avvio la prima sveglia della catena.");
-        Intent broadcastIntent = new Intent(this, ReadReceiver.class);
-        sendBroadcast(broadcastIntent);
-        return START_REDELIVER_INTENT;
+        EselLog.LogI(TAG, "DataMonitorService avviato e attivo.");
+        // Non fa più nulla attivamente, serve solo a mantenere l'app viva.
+        return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
-        EselLog.LogI(TAG, "DataMonitorService onDestroy. La catena di sveglie viene interrotta.");
-        ReadReceiver.cancelAlarm(this);
+        EselLog.LogW(TAG, "DataMonitorService onDestroy.");
         super.onDestroy();
     }
 
@@ -56,12 +54,8 @@ public class DataMonitorService extends Service {
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel serviceChannel = new NotificationChannel(
-                    CHANNEL_ID,
-                    getString(R.string.channel_name),
-                    NotificationManager.IMPORTANCE_LOW
-            );
-            serviceChannel.setDescription(getString(R.string.channel_description));
+            NotificationChannel serviceChannel = new NotificationChannel( CHANNEL_ID, "Esel Monitor Service", NotificationManager.IMPORTANCE_LOW);
+            serviceChannel.setDescription("Notifica persistente per mantenere il servizio attivo.");
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) { manager.createNotificationChannel(serviceChannel); }
         }
@@ -69,8 +63,8 @@ public class DataMonitorService extends Service {
 
     private Notification buildNotification() {
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle(getString(R.string.notification_title))
-                .setContentText(getString(R.string.notification_content))
+                .setContentTitle("Esel Service Attivo")
+                .setContentText("Monitoraggio dati in corso...")
                 .setSmallIcon(R.mipmap.ic_launcher_round)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setCategory(Notification.CATEGORY_SERVICE)

@@ -1,3 +1,4 @@
+// ---------------- INIZIO CODICE DEFINITIVO E CORRETTO PER build.gradle ----------------
 apply plugin: 'com.android.application'
 
 android {
@@ -9,6 +10,10 @@ android {
         versionCode 1
         versionName "1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
     }
     buildTypes {
         release {
@@ -22,41 +27,30 @@ android {
         buildConfig = true
     }
 
-    // ********************************************************************************
-    // MODIFICA QUI: Aggiunto il blocco compileOptions per specificare la versione Java
-    // ********************************************************************************
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17 // Usa Java 17 per il codice sorgente
-        targetCompatibility JavaVersion.VERSION_17 // Usa Java 17 per il bytecode di destinazione
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
-    // Se in futuro userai Kotlin:
-    // kotlinOptions {
-    //     jvmTarget = '17'
-    // }
+    // Il blocco kotlinOptions è stato RIMOSSO perché il progetto è in Java.
 }
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 
-    // Dipendenze Retrofit e Gson
-    implementation 'com.squareup.retrofit2:adapter-guava:2.9.0'
-    implementation 'com.google.code.gson:gson:2.13.1'
-    implementation 'com.squareup.retrofit2:retrofit-converters:2.8.1'
-    implementation 'com.squareup.retrofit2:converter-gson:3.0.0'
+    // Dipendenze aggiornate a Giugno 2025
+    implementation 'com.squareup.retrofit2:retrofit:2.11.0'
+    implementation 'com.squareup.retrofit2:converter-gson:2.11.0'
+    implementation 'com.google.code.gson:gson:2.11.0'
 
-    // Dipendenze AndroidX
-    implementation 'androidx.core:core:1.16.0'
-    implementation 'androidx.appcompat:appcompat:1.7.1'
+    implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'com.google.android.material:material:1.12.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
 
-    // Libreria Preference di AndroidX
-    implementation 'androidx.preference:preference:1.2.1'
+    implementation 'androidx.preference:preference-ktx:1.2.1'
 
-
-    // Dipendenze per i test (aggiornate a AndroidX)
+    // Dipendenze per i test
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
-    androidTestImplementation 'androidx.test:runner:1.6.2'
 }

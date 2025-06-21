@@ -1,22 +1,29 @@
-// ---------------- INIZIO VERSIONE DEFINITIVA E COMPLETA DI EsNotificationListener.java ----------------
+// ---------------- INIZIO CODICE DEFINITIVO E CORRETTO DI EsNotificationListener.java ----------------
 package esel.esel.esel.datareader;
 
 import android.app.Notification;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
+// IMPORT MANCANTI AGGIUNTI QUI
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
+// FINE IMPORT MANCANTI
 
 import esel.esel.esel.util.EselLog;
+import esel.esel.esel.util.LocalBroadcaster;
 import esel.esel.esel.util.SP;
 
 public class EsNotificationListener extends NotificationListenerService {
 
     private static final String TAG = "EsNotificationListener";
-    private static volatile SGV latestStoredSgv = null;
-    private static volatile long lastSentToApsTimestamp = 0;
+    private static final long DUPLICATE_THRESHOLD_MS = 4 * 60 * 1000L;
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
@@ -30,19 +37,64 @@ public class EsNotificationListener extends NotificationListenerService {
             SGV sgv = generateSGVFromNotification(notification);
 
             if (sgv != null) {
-                EselLog.LogI(TAG, "SGV estratto con successo: " + sgv.value + " @ " + sgv.timestamp);
-                synchronized (EsNotificationListener.class) {
-                    if (latestStoredSgv == null || sgv.timestamp > latestStoredSgv.timestamp) {
-                        if (sgv.timestamp > lastSentToApsTimestamp) {
-                            latestStoredSgv = sgv;
-                            EselLog.LogI(TAG, "Nuovo SGV memorizzato.");
-                        } else {
-                            EselLog.LogW(TAG, "SGV scartato (timestamp <= ultimo inviato).");
-                        }
-                    } else {
-                        EselLog.LogW(TAG, "SGV scartato (timestamp non più recente).");
-                    }
+                EselLog.LogI(TAG, "SGV estratto: " + sgv.value + ". Avvio processamento immediato.");
+                new Thread(() -> processAndBroadcastSgv(sgv)).start();
+            }
+        }
+    }
+
+    private void processAndBroadcastSgv(SGV sgv) {
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Esel:ListenerProcessingWakelock");
+        wl.acquire(10 * 1000L);
+
+        try {
+            long oldTime = SP.getLong("lastReadingTime", -1L);
+            int oldValue = SP.getInt("lastReadingValue", -1);
+            boolean hasTimeGap = (oldTime > 0) && (sgv.timestamp - oldTime) > 12 * 60 * 1000L;
+
+            if (sgv.timestamp <= SP.getLong("lastReadingTime", -1L)) {
+                EselLog.LogW(TAG, "SGV scartato (timestamp non è nuovo).");
+                return;
+            }
+            if (sgv.timestamp <= SP.getLong("lastSentToApsTimestamp", -1L)) {
+                EselLog.LogW(TAG, "SGV scartato (timestamp già inviato).");
+                return;
+            }
+
+            boolean isDuplicateReading = (sgv.value == oldValue && (sgv.timestamp - oldTime) < DUPLICATE_THRESHOLD_MS);
+            if (isDuplicateReading) {
+                EselLog.LogW(TAG, "Valore duplicato scartato. Valore: " + sgv.value);
+                SP.putLong("lastReadingTime", sgv.timestamp);
+                return;
+            }
+
+            if (sgv.value >= 39) {
+                boolean enable_smooth = SP.getBoolean("smooth_data", false) && !hasTimeGap;
+                sgv.smooth(oldValue, enable_smooth);
+
+                double slopeByMinute = 0d;
+                if (oldTime > 0) {
+                    slopeByMinute = (double) (sgv.value - oldValue) * 60000.0d / (double) (sgv.timestamp - oldTime);
                 }
+                if (!hasTimeGap) {
+                    sgv.setDirection(slopeByMinute);
+                }
+
+                DateFormat df = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
+                EselLog.LogI(TAG, "Invio valore: " + sgv.value + " | timestamp: " + df.format(new Date(sgv.timestamp)));
+                LocalBroadcaster.broadcast(sgv, true);
+
+                SP.putLong("lastSentToApsTimestamp", sgv.timestamp);
+            }
+            SP.putLong("lastReadingTime", sgv.timestamp);
+            SP.putInt("lastReadingValue", sgv.value);
+
+        } catch (Exception e) {
+            EselLog.LogE(TAG, "Errore durante il processamento del SGV: " + e.getMessage());
+        } finally {
+            if (wl.isHeld()) {
+                wl.release();
             }
         }
     }
@@ -54,26 +106,17 @@ public class EsNotificationListener extends NotificationListenerService {
             CharSequence textChars = extras.getCharSequence(Notification.EXTRA_TEXT);
             if (textChars != null && textChars.length() > 0) {
                 String[] parts = textChars.toString().split(" ");
-                if (parts.length > 0) {
-                    valueString = parts[0];
-                    EselLog.LogI(TAG, "Valore trovato nel campo moderno (EXTRA_TEXT).");
-                }
+                if (parts.length > 0) { valueString = parts[0]; }
             }
         }
         if (valueString == null) {
             CharSequence tickerChars = notification.tickerText;
             if (tickerChars != null && tickerChars.length() > 0) {
                 String[] parts = tickerChars.toString().split(" ");
-                if (parts.length > 0) {
-                    valueString = parts[0];
-                    EselLog.LogW(TAG, "Valore trovato nel campo obsoleto (TickerText).");
-                }
+                if (parts.length > 0) { valueString = parts[0]; }
             }
         }
-        if (valueString == null) {
-            EselLog.LogE(TAG, "Impossibile trovare il valore della glicemia in qualsiasi campo della notifica.");
-            return null;
-        }
+        if (valueString == null) return null;
         int value;
         try {
             if (valueString.contains(".") || valueString.contains(",")) {
@@ -81,39 +124,18 @@ public class EsNotificationListener extends NotificationListenerService {
             } else {
                 value = Integer.parseInt(valueString);
             }
-        } catch (NumberFormatException e) {
-            EselLog.LogE(TAG, "Impossibile convertire il valore trovato. Stringa: '" + valueString + "'");
-            return null;
-        }
+        } catch (NumberFormatException e) { return null; }
         return new SGV(value, notification.when, 0);
     }
 
     public static List<SGV> getData(int number, long lastReadingTime) {
-        List<SGV> result = new ArrayList<>();
-        SGV sgvToSend = null;
-        synchronized (EsNotificationListener.class) {
-            if (latestStoredSgv != null) {
-                if (latestStoredSgv.timestamp > lastReadingTime && latestStoredSgv.timestamp > lastSentToApsTimestamp) {
-                    sgvToSend = latestStoredSgv;
-                    latestStoredSgv = null;
-                }
-            }
-        }
-        if (sgvToSend != null) { result.add(sgvToSend); }
-        return result;
+        return new ArrayList<>();
     }
 
     public static void setLastSentToApsTimestamp(long timestamp) {
-        synchronized (EsNotificationListener.class) {
-            if(timestamp > lastSentToApsTimestamp) {
-                lastSentToApsTimestamp = timestamp;
-                EselLog.LogI(TAG, "Timestamp dell'ultimo invio AGGIORNATO a: " + timestamp);
-            }
+        if(timestamp > SP.getLong("lastSentToApsTimestamp", -1L)) {
+            SP.putLong("lastSentToApsTimestamp", timestamp);
         }
-    }
-
-    public static long getLastSentToApsTimestamp() {
-        return lastSentToApsTimestamp;
     }
 
     @Override public void onListenerConnected() { super.onListenerConnected(); EselLog.LogI(TAG, "Notification Listener connesso e operativo."); }
