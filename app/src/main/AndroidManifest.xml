@@ -27,23 +27,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
         <activity android:name=".LogActivity" android:theme="@style/AppTheme"/>
 
         <receiver android:name=".receivers.AutostartReceiver" android:enabled="true" android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
+            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
         </receiver>
-
-        <receiver
-            android:name=".receivers.AppUpdateReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
+        <receiver android:name=".receivers.AppUpdateReceiver" android:enabled="true" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
         </receiver>
+        <receiver android:name=".receivers.RestartServiceReceiver" android:enabled="true" android:exported="false" />
 
         <service android:name=".datareader.EsNotificationListener"
             android:exported="true"
@@ -53,7 +45,6 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
-
         <service
             android:name=".services.DataMonitorService"
             android:enabled="true"
@@ -67,5 +58,4 @@
         <package android:name="com.eveningoutpost.dexdrip"/>
         <package android:name="info.nightscout.androidaps"/>
     </queries>
-
 </manifest>
