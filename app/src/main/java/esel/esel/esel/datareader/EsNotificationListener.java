@@ -1,89 +1,65 @@
-// ---------------- INIZIO CODICE COMPLETO E CORRETTO DI EsNotificationListener.java ----------------
+// ---------- CODICE FINALE CON FIX PER RACE CONDITION ----------
 package esel.esel.esel.datareader;
 
 import android.app.Notification;
+import android.content.Intent;
 import android.os.Bundle;
-import android.os.PowerManager;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Locale;
+import androidx.core.content.ContextCompat;
+import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
-import esel.esel.esel.util.LocalBroadcaster;
 import esel.esel.esel.util.SP;
 
 public class EsNotificationListener extends NotificationListenerService {
     private static final String TAG = "EsNotificationListener";
-    private static final long DUPLICATE_THRESHOLD_MS = 4 * 60 * 1000L;
-    private static volatile long lastProcessedTimestamp = 0;
+    private static final long COOLDOWN_PERIOD_MS = (5 * 60 * 1000L) - 10000L; // 4 minuti e 50 secondi
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
-        synchronized (EsNotificationListener.class) {
-            if (SP.getBoolean("use_patched_es", false)) return;
-            String packageName = sbn.getPackageName();
-            if (packageName != null && packageName.startsWith("com.senseonics")) {
-                Notification notification = sbn.getNotification();
-                if (notification == null) return;
-                if (notification.when <= lastProcessedTimestamp) {
-                    return;
-                }
-                lastProcessedTimestamp = notification.when;
-                SGV sgv = generateSGVFromNotification(notification);
-                if (sgv != null) {
-                    processAndBroadcastSgv(sgv);
-                }
-            }
+        if (SP.getBoolean("use_patched_es", false)) return;
+
+        String packageName = sbn.getPackageName();
+        if (packageName == null || !packageName.startsWith("com.senseonics")) return;
+
+        Notification notification = sbn.getNotification();
+        if (notification == null) return;
+
+        // --- REGOLA #1: CONTROLLO DELLA FINESTRA TEMPORALE ---
+        long lastSuccessfulSendTime = SP.getLong("lastSuccessfulSendTime", 0L);
+        long timeSinceLastSend = System.currentTimeMillis() - lastSuccessfulSendTime;
+        if (timeSinceLastSend < COOLDOWN_PERIOD_MS) {
+            EselLog.LogI(TAG, "Notifica ignorata (Finestra Temporale Chiusa): " + (timeSinceLastSend / 1000) + "s dall'ultimo invio.");
+            return;
         }
-    }
 
-    private void processAndBroadcastSgv(SGV sgv) {
-        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-        PowerManager.WakeLock wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Esel:ListenerProcessingWakelock");
-        wl.acquire(10 * 1000L);
-        try {
-            int oldValue = SP.getInt("lastReadingValue", -1);
-            long oldTime = SP.getLong("lastReadingTime", -1L);
-            boolean hasTimeGap = (oldTime > 0) && (sgv.timestamp - oldTime) > 12 * 60 * 1000L;
-            boolean isDuplicateReading = (sgv.value == oldValue && (sgv.timestamp - oldTime) < DUPLICATE_THRESHOLD_MS);
-            if (isDuplicateReading) {
-                SP.putLong("lastReadingTime", sgv.timestamp);
-                return;
-            }
-            if (sgv.value >= 39) {
-                // Calcola la pendenza sui valori GREZZI
-                double slopeByMinute = 0d;
-                if (oldTime > 0) {
-                    slopeByMinute = (double) (sgv.raw - oldValue) * 60000.0d / (double) (sgv.timestamp - oldTime);
-                }
-                if (!hasTimeGap) {
-                    sgv.setDirection(slopeByMinute);
-                }
-                // Applica lo smoothing (se attivo) solo DOPO
-                boolean enable_smooth = SP.getBoolean("smooth_data", false) && !hasTimeGap;
-                if (enable_smooth) {
-                    sgv.smooth(oldValue);
-                }
-
-                DateFormat df = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
-                EselLog.LogI(TAG, "Invio valore: " + sgv.value + " (Grezzo: " + sgv.raw + ") | Direzione: " + sgv.direction);
-
-                // --- QUESTA È LA RIGA CORRETTA ---
-                LocalBroadcaster.broadcast(sgv, true);
-
-            }
-            // Salva sempre il valore GREZZO
-            SP.putLong("lastReadingTime", sgv.timestamp);
-            SP.putInt("lastReadingValue", sgv.raw);
-        } catch (Exception e) {
-            EselLog.LogE(TAG, "Errore durante il processamento del SGV: " + e.getMessage());
-        } finally {
-            if (wl.isHeld()) {
-                wl.release();
-            }
+        // --- REGOLA #2: CONTROLLO DEL TIMESTAMP PER ANTI-SPAM ---
+        long lastNotificationTimestamp = SP.getLong("lastNotificationTimestamp", 0L);
+        if (notification.when == lastNotificationTimestamp) {
+            EselLog.LogI(TAG, "Notifica ignorata (Timestamp Duplicato): " + notification.when);
+            return;
         }
+
+        // --- CONTROLLI SUPERATI: QUESTO È UN DATO VALIDO ---
+
+        SGV sgv = generateSGVFromNotification(notification);
+        if (sgv == null || sgv.value < 39) {
+            EselLog.LogW(TAG, "SGV non valido o troppo basso. Ignorato.");
+            return;
+        }
+
+        // ----- LA CORREZIONE È QUI! -----
+        // "Blocchiamo la porta" immediatamente per prevenire invii multipli.
+        // Diciamo subito che stiamo per fare un invio ORA.
+        long now = System.currentTimeMillis();
+        SP.putLong("lastSuccessfulSendTime", now);
+        SP.putLong("lastNotificationTimestamp", notification.when);
+        // --------------------------------
+
+        EselLog.LogI(TAG, "Notifica valida (" + sgv.value + ") accettata. Blocco lo slot e avvio il servizio.");
+        Intent serviceIntent = new Intent(this, DataMonitorService.class);
+        serviceIntent.putExtra("sgv_data", sgv);
+        ContextCompat.startForegroundService(this, serviceIntent);
     }
 
     private SGV generateSGVFromNotification(Notification notification) {

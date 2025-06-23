@@ -1,8 +1,11 @@
-// Codice da incollare in LogActivity.java
+// ---------- CODICE COMPLETO E AGGIORNATO PER LogActivity.java ----------
 package esel.esel.esel;
 
 import android.os.Bundle;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.widget.TextView;
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.lifecycle.Observer;
@@ -16,10 +19,8 @@ public class LogActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // Usa il nuovo layout che abbiamo definito
         setContentView(R.layout.activity_errors);
 
-        // Imposta la Toolbar e il tasto "Indietro"
         Toolbar toolbar = findViewById(R.id.toolbar_log);
         setSupportActionBar(toolbar);
         if (getSupportActionBar() != null) {
@@ -28,18 +29,13 @@ public class LogActivity extends AppCompatActivity {
         }
 
         textViewLogContent = findViewById(R.id.textview_log_content);
-
-        // Ottieni l'istanza del nostro logger
         appLogger = AppLogger.getInstance(getApplicationContext());
 
-        // Imposta un Observer per ricevere i log e mostrarli nella TextView
-        // Questo è lo stesso meccanismo sicuro che avevamo preparato in passato
         final Observer<List<String>> logObserver = logLines -> {
             if (logLines == null || logLines.isEmpty()) {
                 textViewLogContent.setText("Nessun log da mostrare.");
                 return;
             }
-            // Uniamo tutte le righe di log in un unico testo
             StringBuilder sb = new StringBuilder();
             for (String line : logLines) {
                 sb.append(line).append("\n");
@@ -47,14 +43,29 @@ public class LogActivity extends AppCompatActivity {
             textViewLogContent.setText(sb.toString());
         };
 
-        // Collega l'observer al LiveData dei log
         appLogger.getLogs().observe(this, logObserver);
     }
 
-    // Gestisce il click sul tasto "Indietro" nella Toolbar
     @Override
     public boolean onSupportNavigateUp() {
-        onBackPressed(); // Torna alla schermata precedente
+        onBackPressed();
         return true;
+    }
+
+    // --- NUOVI METODI PER GESTIRE IL MENU ---
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.log_menu, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(@NonNull MenuItem item) {
+        if (item.getItemId() == R.id.action_clear_log) {
+            // Quando l'utente clicca sul cestino, chiamiamo il nostro nuovo metodo
+            appLogger.clearLogs();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
     }
 }

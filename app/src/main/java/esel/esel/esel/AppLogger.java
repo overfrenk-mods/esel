@@ -1,4 +1,4 @@
-// ---------------- INIZIO CODICE PER AppLogger.java ----------------
+// ---------------- CODICE COMPLETO E AGGIORNATO PER AppLogger.java ----------------
 package esel.esel.esel;
 
 import android.content.Context;
@@ -142,5 +142,28 @@ public class AppLogger {
             Log.e(TAG, "Errore durante la scrittura del file di log", e);
         }
     }
+
+    // --- NUOVO METODO AGGIUNTO ---
+    /**
+     * Pulisce tutti i log, sia in memoria che su file.
+     * Viene eseguito in un thread separato per non bloccare l'interfaccia utente.
+     */
+    public void clearLogs() {
+        executor.execute(() -> {
+            // Pulisce la lista in memoria
+            synchronized (logLines) {
+                logLines.clear();
+            }
+
+            // Cancella il file fisico
+            if (logFile.exists()) {
+                logFile.delete();
+            }
+
+            // Notifica l'UI che la lista è ora vuota
+            logsLiveData.postValue(new ArrayList<>());
+
+            Log.w(TAG, "Log pulito dall'utente.");
+        });
+    }
 }
-// ---------------- FINE CODICE PER AppLogger.java ----------------

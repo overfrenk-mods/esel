@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -35,7 +37,10 @@
         <receiver android:name=".receivers.AppUpdateReceiver" android:enabled="true" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
         </receiver>
-        <receiver android:name=".receivers.RestartServiceReceiver" android:enabled="true" android:exported="false" />
+
+        <receiver android:name=".receivers.ServiceRestarter" android:enabled="true" android:exported="false" />
+
+        <receiver android:name=".receivers.WatchdogReceiver" android:enabled="true" android:exported="false" />
 
         <service android:name=".datareader.EsNotificationListener"
             android:exported="true"

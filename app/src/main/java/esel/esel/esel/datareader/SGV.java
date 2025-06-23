@@ -1,6 +1,7 @@
-// Codice COMPLETO e DEFINITIVO da incollare in SGV.java
+// ---------- CODICE COMPLETO E DEFINITIVO PER SGV.java ----------
 package esel.esel.esel.datareader;
 
+import java.io.Serializable; // MODIFICA: Aggiunto l'import necessario
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -11,7 +12,8 @@ import esel.esel.esel.util.SP;
 
 import static java.lang.Math.min;
 
-public class SGV {
+// MODIFICA: Aggiunta l'implementazione di Serializable
+public class SGV implements Serializable {
     public int value;
     public int raw;
     public long timestamp;

@@ -1,6 +1,18 @@
 <PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- NUOVA CATEGORIA CON INTERRUTTORE PRINCIPALE -->
+    <PreferenceCategory app:title="Controllo Servizio">
+
+        <SwitchPreferenceCompat
+            app:key="enable_service"
+            app:title="Attiva Monitoraggio Eversense-Reader"
+            app:summary="Interruttore principale per avviare e fermare il servizio di monitoraggio in background."
+            app:defaultValue="true" />
+
+    </PreferenceCategory>
+
+    <!-- Il resto delle impostazioni rimane invariato -->
     <PreferenceCategory app:title="Invio Dati">
 
         <SwitchPreferenceCompat

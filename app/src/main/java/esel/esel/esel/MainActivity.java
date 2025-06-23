@@ -1,7 +1,9 @@
-// ---------------- INIZIO CODICE FINALE E CORRETTO PER MainActivity.java ----------------
+// ---------- CODICE FINALE E COMPLETO AL 100% PER MainActivity.java ----------
 package esel.esel.esel;
 
 import android.Manifest;
+import android.app.AlarmManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -13,7 +15,6 @@ import android.provider.Settings;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.Toast;
-
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
@@ -21,10 +22,14 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.ContextCompat;
 
-import esel.esel.esel.services.DataMonitorService; // <-- IMPORT AGGIUNTO
+import esel.esel.esel.receivers.WatchdogReceiver;
+import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
+import esel.esel.esel.util.SP; // Import aggiunto per usare SP
 
 public class MainActivity extends AppCompatActivity {
+
+    private static final String TAG = "MainActivity";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,33 +51,57 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // --- MODIFICA CHIAVE: Usiamo onResume() per controllare i permessi e avviare il servizio ---
     @Override
     protected void onResume() {
         super.onResume();
-        // Ogni volta che l'utente torna all'app, controlliamo lo stato.
         checkPermissionsAndStartService();
     }
 
     private void checkPermissionsAndStartService() {
-        // Controlliamo se tutti i permessi critici sono stati concessi
-        if (areAllPermissionsGranted()) {
-            // Se sì, avviamo il servizio
-            EselLog.LogI(TAG, "Tutti i permessi sono concessi. Avvio il DataMonitorService...");
+        // --- QUESTA È L'UNICA PARTE MODIFICATA RISPETTO AL TUO FILE ---
+        if (areAllPermissionsGranted() && SP.getBoolean("enable_service", true)) {
+            EselLog.LogI(TAG, "Permessi OK e servizio abilitato. Avvio il DataMonitorService...");
             ContextCompat.startForegroundService(this, new Intent(this, DataMonitorService.class));
-        } else {
-            // Se no, chiediamo quelli mancanti
+            scheduleWatchdogAlarm();
+        } else if (!areAllPermissionsGranted()) {
             EselLog.LogW(TAG, "Permessi mancanti. Avvio la procedura di richiesta.");
             requestMissingPermissions();
+        } else {
+            EselLog.LogI(TAG, "Il servizio è disabilitato dalle impostazioni. Nessuna azione.");
         }
     }
 
-    // --- NUOVO METODO: Controlla tutti i permessi in un colpo solo ---
+    // --- NUOVO METODO: Per programmare l'allarme del Watchdog ---
+    private void scheduleWatchdogAlarm() {
+        Intent intent = new Intent(this, WatchdogReceiver.class);
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(this, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+
+        // Controlliamo se l'allarme è già attivo per non riprogrammarlo inutilmente
+        boolean isAlarmUp = (PendingIntent.getBroadcast(this, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE) != null);
+
+        if (isAlarmUp) {
+            EselLog.LogI(TAG, "L'allarme Watchdog è già programmato a 15 minuti.");
+            return;
+        }
+
+        // Usiamo un allarme inesatto ogni 15 minuti, come concordato.
+        alarmManager.setInexactRepeating(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                AlarmManager.INTERVAL_FIFTEEN_MINUTES,
+                AlarmManager.INTERVAL_FIFTEEN_MINUTES,
+                pendingIntent
+        );
+        EselLog.LogI(TAG, "Allarme Watchdog programmato ogni 15 minuti.");
+    }
+
+    // --- Il resto della classe rimane PERFETTAMENTE INVARIATO ---
+
     private boolean areAllPermissionsGranted() {
         return isNotificationPermissionGranted() && isNotificationListenerEnabled() && isBatteryOptimizationIgnored();
     }
 
-    // --- NUOVO METODO: Chiede solo i permessi che mancano ---
     private void requestMissingPermissions() {
         if (!isNotificationPermissionGranted()) {
             requestNotificationPermission();
@@ -99,9 +128,6 @@ public class MainActivity extends AppCompatActivity {
         }
         return super.onOptionsItemSelected(item);
     }
-
-    // Il resto della classe (i metodi per i singoli permessi) rimane quasi invariato...
-    private static final String TAG = "MainActivity"; // Aggiunto TAG per i log
 
     private boolean isNotificationPermissionGranted() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

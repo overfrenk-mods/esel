@@ -1,3 +1,4 @@
+// ---------- CODICE COMPLETO PER ServiceRestarter.java ----------
 package esel.esel.esel.receivers;
 
 import android.content.BroadcastReceiver;
@@ -7,13 +8,10 @@ import androidx.core.content.ContextCompat;
 import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
 
-public class RestartServiceReceiver extends BroadcastReceiver {
-    private static final String TAG = "RestartServiceReceiver";
-
+public class ServiceRestarter extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
-        EselLog.LogW(TAG, "Sveglia di sicurezza (Watchdog) ricevuta. Controllo e avvio DataMonitorService...");
-        // Questo comando avvia il servizio solo se non è già in esecuzione, rianimandolo.
+        EselLog.LogW("ServiceRestarter", "Ricevuto broadcast di riavvio. Rianimo il DataMonitorService!");
         ContextCompat.startForegroundService(context, new Intent(context, DataMonitorService.class));
     }
 }
