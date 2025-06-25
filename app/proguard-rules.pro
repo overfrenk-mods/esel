@@ -23,3 +23,15 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# ProGuard/R8 rules for Eversense-Reader
+
+# Mantiene la classe SGV e tutti i suoi campi e metodi pubblici.
+# Questo è fondamentale perché la classe viene passata tra componenti tramite Intent (Serializable)
+# e i suoi campi vengono usati per creare oggetti JSON per l'invio.
+# Senza questa regola, R8 potrebbe rinominare i campi "value", "raw", "direction",
+# rompendo la comunicazione con AAPS.
+-keep class esel.esel.esel.datareader.SGV { *; }
+
+# Mantiene anche i nomi dei metodi pubblici e dei campi delle tue classi di utilità principali, per sicurezza.
+-keep class esel.esel.esel.util.** { *; }

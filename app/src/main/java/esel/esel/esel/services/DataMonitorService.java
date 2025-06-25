@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE, COMPLETO E DEFINITIVO PER DataMonitorService.java ----------
+// ---------- CODICE FINALE SEMPLIFICATO PER minSdk 33 ----------
 package esel.esel.esel.services;
 
 import android.app.AlarmManager;
@@ -47,37 +47,25 @@ public class DataMonitorService extends Service {
         executor = Executors.newSingleThreadExecutor();
         createNotificationChannel();
 
-        // All'avvio, dichiariamo che il servizio dovrebbe essere attivo
         SP.putBoolean("service_should_be_running", true);
 
         Notification notification = buildNotification("Servizio in attesa di dati...");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-        } else {
-            startForeground(NOTIFICATION_ID, notification);
-        }
+        // --- MODIFICA: Rimosso blocco if/else per la versione. Usiamo direttamente il metodo moderno. ---
+        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
-            // Gestione del pulsante STOP della notifica o dello switch nelle impostazioni
             if (ACTION_STOP_SERVICE.equals(intent.getAction())) {
                 EselLog.LogW(TAG, "Azione STOP ricevuta. Termino volontariamente il servizio.");
-
-                // Diciamo che il servizio non deve più essere in esecuzione
                 SP.putBoolean("service_should_be_running", false);
-                // Aggiorniamo anche l'interruttore principale nelle impostazioni per coerenza
                 SP.putBoolean("enable_service", false);
-
-                cancelWatchdogAlarm(); // Cancelliamo il controllo periodico
-
-                stopForeground(true); // Rimuove la notifica
-                stopSelf(); // Ferma il servizio
-                return START_NOT_STICKY; // E non deve ripartire
+                cancelWatchdogAlarm();
+                stopForeground(true);
+                stopSelf();
+                return START_NOT_STICKY;
             }
-
-            // Gestione dei dati in arrivo dal Listener
             if (intent.hasExtra("sgv_data")) {
                 final SGV sgv = (SGV) intent.getSerializableExtra("sgv_data");
                 if (sgv != null) {
@@ -89,51 +77,56 @@ public class DataMonitorService extends Service {
     }
 
     private void processSgv(SGV sgv) {
+        // Questo metodo rimane identico, è già perfetto.
         try {
-            // 1. Recupera lo stato della LETTURA PRECEDENTE
             int lastSentRawValue = SP.getInt("lastSentRawValue", -1);
             int lastSentFinalValue = SP.getInt("lastSentFinalValue", -1);
             long lastSentTime = SP.getLong("lastSentTime", -1L);
             boolean hasTimeGap = (lastSentTime > 0) && (sgv.timestamp - lastSentTime) > 12 * 60 * 1000L;
-
-            // 2. Determina il valore finale, applicando lo smoothing se necessario
             int finalValue = sgv.raw;
             boolean smoothing_enabled = SP.getBoolean("smooth_data", false);
             if (smoothing_enabled && lastSentRawValue != -1 && !hasTimeGap) {
                 sgv.smooth(lastSentRawValue);
                 finalValue = sgv.value;
             }
-
-            // 3. Calcola la pendenza sul valore finale che verrà inviato
             double slopeByMinute = 0d;
             if (lastSentTime > 0 && !hasTimeGap) {
                 slopeByMinute = (double) (finalValue - lastSentFinalValue) * 60000.0d / (double) (sgv.timestamp - lastSentTime);
                 sgv.setDirection(slopeByMinute);
             }
-
-            // 4. Assicura che il valore nell'oggetto SGV sia quello finale
             sgv.value = finalValue;
-
             DateFormat df = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
             EselLog.LogI(TAG, "Pronto per invio: Valore=" + sgv.value + " (Grezzo=" + sgv.raw + ") | Direzione=" + sgv.direction);
-
-            // 5. Invia i dati in base alle impostazioni
             if (SP.getBoolean("send_to_AAPS", true)) {
                 AapsSender.sendToAaps(getApplicationContext(), sgv);
             }
             if (SP.getBoolean("send_to_NS", false)) {
                 AapsSender.sendToNsClient(getApplicationContext(), sgv);
             }
-
-            // 6. Salva lo stato per la prossima esecuzione
             SP.putLong("lastSentTime", sgv.timestamp);
             SP.putInt("lastSentRawValue", sgv.raw);
             SP.putInt("lastSentFinalValue", finalValue);
 
-            updateNotification("Ultimo invio: " + sgv.value + " (" + sgv.direction + ") alle " + df.format(new Date(sgv.timestamp)));
+            String trendArrow = getTrendArrow(sgv.direction);
+            String notificationText = "Ultimo invio: " + sgv.value + " " + trendArrow + " alle " + df.format(new Date(sgv.timestamp));
+            updateNotification(notificationText);
 
         } catch (Exception e) {
             EselLog.LogE(TAG, "Errore critico durante il processamento del SGV: " + e.getMessage());
+        }
+    }
+
+    private String getTrendArrow(String direction) {
+        if (direction == null) return "↔";
+        switch (direction) {
+            case "DoubleUp": return "↑↑";
+            case "SingleUp": return "↑";
+            case "FortyFiveUp": return "↗";
+            case "Flat": return "→";
+            case "FortyFiveDown": return "↘";
+            case "SingleDown": return "↓";
+            case "DoubleDown": return "↓↓";
+            default: return "↔";
         }
     }
 
@@ -141,7 +134,6 @@ public class DataMonitorService extends Service {
     public void onDestroy() {
         super.onDestroy();
         EselLog.LogW(TAG, "DataMonitorService onDestroy.");
-        // Riavvia solo se non è stato fermato volontariamente
         if (SP.getBoolean("service_should_be_running", false)) {
             EselLog.LogW(TAG, "Distruzione non volontaria. Invio broadcast per il riavvio...");
             Intent broadcastIntent = new Intent(this, ServiceRestarter.class);
@@ -153,7 +145,6 @@ public class DataMonitorService extends Service {
     public void onTaskRemoved(Intent rootIntent) {
         super.onTaskRemoved(rootIntent);
         EselLog.LogW(TAG, "Task rimosso.");
-        // Riavvia solo se non è stato fermato volontariamente
         if (SP.getBoolean("service_should_be_running", false)) {
             EselLog.LogW(TAG, "Distruzione non volontaria. Invio broadcast per il riavvio...");
             Intent broadcastIntent = new Intent(this, ServiceRestarter.class);
@@ -178,7 +169,7 @@ public class DataMonitorService extends Service {
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Esel Service Attivo")
+                .setContentTitle("Eversense-Reader Attivo")
                 .setContentText(contentText)
                 .setSmallIcon(R.drawable.ic_stat_esel_sync)
                 .setColor(ContextCompat.getColor(this, R.color.green_primary))
@@ -203,14 +194,14 @@ public class DataMonitorService extends Service {
 
     @Nullable @Override public IBinder onBind(Intent intent) { return null; }
 
+    // --- METODO SEMPLIFICATO ---
+    // Il controllo if(Build.VERSION...) è stato rimosso.
     private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel serviceChannel = new NotificationChannel(CHANNEL_ID, "Esel Monitor Service", NotificationManager.IMPORTANCE_LOW);
-            serviceChannel.setDescription("Notifica persistente per il monitoraggio dati.");
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) {
-                manager.createNotificationChannel(serviceChannel);
-            }
+        NotificationChannel serviceChannel = new NotificationChannel(CHANNEL_ID, "Eversense-Reader Service", NotificationManager.IMPORTANCE_LOW);
+        serviceChannel.setDescription("Notifica persistente per il monitoraggio dati.");
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.createNotificationChannel(serviceChannel);
         }
     }
 }

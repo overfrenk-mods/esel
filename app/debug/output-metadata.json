@@ -12,10 +12,10 @@
       "filters": [],
       "attributes": [],
       "versionCode": 1,
-      "versionName": "1.0",
+      "versionName": "v1.0 by Chiariello Francesco",
       "outputFile": "app-debug.apk"
     }
   ],
   "elementType": "File",
-  "minSdkVersionForDexing": 26
+  "minSdkVersionForDexing": 33
 }

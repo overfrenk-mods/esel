@@ -1,14 +1,15 @@
-// ---------------- INIZIO CODICE DEFINITIVO E CORRETTO PER build.gradle ----------------
+// ---------- CODICE CON MINSDK AGGIORNATO ----------
 apply plugin: 'com.android.application'
 
 android {
     compileSdk 35
     defaultConfig {
         applicationId "esel.esel.esel"
-        minSdk 26
+        // --- MODIFICA: Versione minima alzata ad Android 13 (API 33) ---
+        minSdk 33
         targetSdk 35
         versionCode 1
-        versionName "1.0"
+        versionName "v1.0 by Chiariello Francesco"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
@@ -17,7 +18,7 @@ android {
     }
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
@@ -31,13 +32,12 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    // Il blocco kotlinOptions è stato RIMOSSO perché il progetto è in Java.
 }
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 
-    // Dipendenze aggiornate a Giugno 2025
+    // Versioni originali e stabili
     implementation 'com.squareup.retrofit2:retrofit:2.11.0'
     implementation 'com.squareup.retrofit2:converter-gson:2.11.0'
     implementation 'com.google.code.gson:gson:2.11.0'

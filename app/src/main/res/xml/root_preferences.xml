@@ -1,7 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
 <PreferenceScreen xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- NUOVA CATEGORIA CON INTERRUTTORE PRINCIPALE -->
+    <PreferenceCategory app:title="Stato Attuale">
+
+        <Preference
+            app:key="status_service_state"
+            app:title="Stato del Servizio"
+            app:summary="In attesa..."
+            app:icon="@drawable/ic_status_dot"
+            app:selectable="false" />
+
+        <Preference
+            app:key="status_last_reading"
+            app:title="Ultima Lettura Valida"
+            app:summary="Nessuna lettura ancora ricevuta"
+            app:icon="@drawable/ic_stat_esel_sync"
+            app:selectable="false" />
+
+        <Preference
+            app:key="status_last_send"
+            app:title="Ultimo Invio Riuscito"
+            app:summary="Nessun invio ancora effettuato"
+            app:icon="@drawable/ic_send_time"
+            app:selectable="false" />
+
+    </PreferenceCategory>
+
     <PreferenceCategory app:title="Controllo Servizio">
 
         <SwitchPreferenceCompat
@@ -12,7 +37,6 @@
 
     </PreferenceCategory>
 
-    <!-- Il resto delle impostazioni rimane invariato -->
     <PreferenceCategory app:title="Invio Dati">
 
         <SwitchPreferenceCompat

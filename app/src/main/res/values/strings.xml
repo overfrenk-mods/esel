@@ -1,6 +1,9 @@
 <resources>
     <string name="app_name">Eversense-Reader</string>
-    <string name="app_version">V1-Francesco</string>
+    <string name="app_version">V1-Chiariello Francesco</string>
+
+    <string name="app_subtitle">V1 by Chiariello Francesco</string>
+
     <string name="navigation_drawer_open">Open navigation drawer</string>
     <string name="navigation_drawer_close">Close navigation drawer</string>
     <string name="action_settings">Settings</string>

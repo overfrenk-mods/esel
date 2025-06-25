@@ -1,4 +1,3 @@
-// ---------- CODICE FINALE E CORRETTO PER AapsSender.java ----------
 package esel.esel.esel.util;
 
 import android.content.Context;
@@ -81,7 +80,8 @@ public class AapsSender {
         } else {
             json.put("direction", sgv.direction);
         }
-        json.put("device", "ESEL");
+        // --- L'UNICA MODIFICA È QUI ---
+        json.put("device", "Eversense-Reader");
         json.put("type", "sgv");
         json.put("date", sgv.timestamp);
         json.put("dateString", jsonDateFormat.format(sgv.timestamp));

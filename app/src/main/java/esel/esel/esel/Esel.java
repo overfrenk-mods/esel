@@ -1,44 +1,62 @@
-// ---------------- INIZIO CODICE COMPLETO E MODIFICATO PER Esel.java ----------------
+// ---------- CODICE FINALE SEMPLIFICATO PER minSdk 33 ----------
 package esel.esel.esel;
 
 import android.app.Application;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.Resources;
+import android.os.Build;
+
 import androidx.core.content.ContextCompat;
 
 import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
 
-/**
- * Created by adrian on 04/08/17.
- */
-
 public class Esel extends Application {
 
     private static Esel sInstance;
     private static Resources sResources;
 
+    public static final String ALERT_CHANNEL_ID = "EselAlertChannel";
 
     @Override
     public void onCreate() {
         super.onCreate();
 
-        // ---> QUESTA È LA RIGA CHE ABBIAMO AGGIUNTO <---
-        // Inizializza il nostro sistema di logging come primissima cosa.
         EselLog.init(this);
 
         sInstance = this;
         sResources = getResources();
         EselLog.LogI("EselApp", "Application onCreate");
 
-        boolean use_patched_es = SP.getBoolean("use_patched_es", false); // Default è FALSE
+        createNotificationChannels();
+
+        boolean use_patched_es = SP.getBoolean("use_patched_es", false);
         if (use_patched_es) {
             startDataMonitorService();
         }
-        // Nota: Se use_patched_es è FALSE, il servizio non parte da qui.
-        // Verrà avviato dall'AutostartReceiver (al boot) o da un'azione UI.
+    }
+
+    // --- METODO SEMPLIFICATO ---
+    // Il controllo if(Build.VERSION...) è stato rimosso perché la minSdk è 33 (Android 13)
+    private void createNotificationChannels() {
+        // Canale per gli avvisi critici del Watchdog (alta priorità)
+        NotificationChannel alertChannel = new NotificationChannel(
+                ALERT_CHANNEL_ID,
+                "Avvisi Critici Eversense-Reader",
+                NotificationManager.IMPORTANCE_HIGH
+        );
+        alertChannel.setDescription("Notifiche per problemi critici di funzionamento dell'app");
+
+        // Registriamo il canale con il sistema
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.createNotificationChannel(alertChannel);
+            EselLog.LogI("EselApp", "Canale di notifica per gli avvisi creato.");
+        }
     }
 
     public static Esel getsInstance() {
@@ -59,7 +77,6 @@ public class Esel extends Application {
         stopService(new Intent(this, DataMonitorService.class));
     }
 
-    // I seguenti metodi reindirizzano le chiamate al DataMonitorService
     public synchronized void startReadReceiver() {
         startDataMonitorService();
     }
@@ -76,4 +93,3 @@ public class Esel extends Application {
         stopDataMonitorService();
     }
 }
-// ---------------- FINE CODICE COMPLETO E MODIFICATO PER Esel.java ----------------

@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE E COMPLETO AL 100% PER MainActivity.java ----------
+// ---------- CODICE FINALE SEMPLIFICATO PER minSdk 33 ----------
 package esel.esel.esel;
 
 import android.Manifest;
@@ -25,7 +25,7 @@ import androidx.core.content.ContextCompat;
 import esel.esel.esel.receivers.WatchdogReceiver;
 import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
-import esel.esel.esel.util.SP; // Import aggiunto per usare SP
+import esel.esel.esel.util.SP;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -40,7 +40,7 @@ public class MainActivity extends AppCompatActivity {
         setSupportActionBar(toolbar);
         if (getSupportActionBar() != null) {
             getSupportActionBar().setTitle(R.string.app_name);
-            getSupportActionBar().setSubtitle("by Francesco v1");
+            getSupportActionBar().setSubtitle(R.string.app_subtitle);
         }
 
         if (savedInstanceState == null) {
@@ -58,7 +58,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void checkPermissionsAndStartService() {
-        // --- QUESTA È L'UNICA PARTE MODIFICATA RISPETTO AL TUO FILE ---
         if (areAllPermissionsGranted() && SP.getBoolean("enable_service", true)) {
             EselLog.LogI(TAG, "Permessi OK e servizio abilitato. Avvio il DataMonitorService...");
             ContextCompat.startForegroundService(this, new Intent(this, DataMonitorService.class));
@@ -71,22 +70,15 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // --- NUOVO METODO: Per programmare l'allarme del Watchdog ---
     private void scheduleWatchdogAlarm() {
         Intent intent = new Intent(this, WatchdogReceiver.class);
         PendingIntent pendingIntent = PendingIntent.getBroadcast(this, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
         AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
-
-        // Controlliamo se l'allarme è già attivo per non riprogrammarlo inutilmente
         boolean isAlarmUp = (PendingIntent.getBroadcast(this, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE) != null);
-
         if (isAlarmUp) {
             EselLog.LogI(TAG, "L'allarme Watchdog è già programmato a 15 minuti.");
             return;
         }
-
-        // Usiamo un allarme inesatto ogni 15 minuti, come concordato.
         alarmManager.setInexactRepeating(
                 AlarmManager.ELAPSED_REALTIME_WAKEUP,
                 AlarmManager.INTERVAL_FIFTEEN_MINUTES,
@@ -95,8 +87,6 @@ public class MainActivity extends AppCompatActivity {
         );
         EselLog.LogI(TAG, "Allarme Watchdog programmato ogni 15 minuti.");
     }
-
-    // --- Il resto della classe rimane PERFETTAMENTE INVARIATO ---
 
     private boolean areAllPermissionsGranted() {
         return isNotificationPermissionGranted() && isNotificationListenerEnabled() && isBatteryOptimizationIgnored();
@@ -129,12 +119,12 @@ public class MainActivity extends AppCompatActivity {
         return super.onOptionsItemSelected(item);
     }
 
+    // --- METODO SEMPLIFICATO ---
+    // Il permesso per le notifiche è obbligatorio da Android 13 (nostra minSdk), quindi non serve più l'if.
     private boolean isNotificationPermissionGranted() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            return ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
-        }
-        return true;
+        return ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
     }
+
     private final ActivityResultLauncher<String> requestPermissionLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
                 if (isGranted) { EselLog.LogI(TAG, "Permesso Notifiche CONCESSO."); }
@@ -143,31 +133,35 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(this, "Attenzione: senza il permesso notifiche, l'app potrebbe non funzionare correttamente.", Toast.LENGTH_LONG).show();
                 }
             });
+
+    // --- METODO SEMPLIFICATO ---
     private void requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            EselLog.LogI(TAG, "Richiesta permesso POST_NOTIFICATIONS...");
-            requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
-        }
+        EselLog.LogI(TAG, "Richiesta permesso POST_NOTIFICATIONS...");
+        requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
     }
+
     private boolean isNotificationListenerEnabled() {
         String enabledListeners = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
         if (enabledListeners != null) { return enabledListeners.contains(getPackageName()); }
         return false;
     }
+
     private void requestNotificationListenerPermission() {
         EselLog.LogI(TAG, "Richiesta accesso alle notifiche (Listener)...");
-        Toast.makeText(this, "Per favore, abilita Esel nella schermata di Accesso alle Notifiche.", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "Per favore, abilita Eversense-Reader nella schermata di Accesso alle Notifiche.", Toast.LENGTH_LONG).show();
         startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
     }
+
+    // --- METODO SEMPLIFICATO ---
+    // Le ottimizzazioni batteria esistono da Android 6 (molto prima della nostra minSdk), quindi non serve più l'if.
     private boolean isBatteryOptimizationIgnored() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            return pm.isIgnoringBatteryOptimizations(getPackageName());
-        }
-        return true;
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        return pm.isIgnoringBatteryOptimizations(getPackageName());
     }
+
+    // --- METODO SEMPLIFICATO ---
     private void requestToIgnoreBatteryOptimizations() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !isBatteryOptimizationIgnored()){
+        if (!isBatteryOptimizationIgnored()){
             EselLog.LogI(TAG, "Richiesta per ignorare ottimizzazione batteria...");
             Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
             intent.setData(Uri.parse("package:" + getPackageName()));
