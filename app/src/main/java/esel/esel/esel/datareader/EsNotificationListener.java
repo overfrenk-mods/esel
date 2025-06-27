@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE CON FILTRO BASATO SUL CONTENUTO ----------
+// ---------- CODICE FINALE E DEFINITIVO CON FILTRO TEMPORALE PURO ----------
 package esel.esel.esel.datareader;
 
 import android.app.Notification;
@@ -18,6 +18,7 @@ import esel.esel.esel.util.SP;
 public class EsNotificationListener extends NotificationListenerService {
     private static final String TAG = "EsNotificationListener";
     private static final long COOLDOWN_PERIOD_MS = (5 * 60 * 1000L) - 10000L;
+    private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
     private static final Pattern VALUE_PATTERN = Pattern.compile("(?<!\\d:)\\b(\\d+([,.]\\d+)?)\\b(?!:\\d)");
 
     @Override
@@ -30,37 +31,39 @@ public class EsNotificationListener extends NotificationListenerService {
         Notification notification = sbn.getNotification();
         if (notification == null) return;
 
-        // --- REGOLA #1: CONTROLLO DELLA FINESTRA TEMPORALE (INVARIATO) ---
+        // --- GESTIONE DELLE LUNGHE PAUSE (RICARICA/RIAVVIO) ---
         long lastSuccessfulSendTime = SP.getLong("lastSuccessfulSendTime", 0L);
         long timeSinceLastSend = System.currentTimeMillis() - lastSuccessfulSendTime;
+
+        if (lastSuccessfulSendTime > 0 && timeSinceLastSend > LONG_PAUSE_THRESHOLD_MS) {
+            SP.putLong("lastSuccessfulSendTime", System.currentTimeMillis()); // Reset immediato del cooldown
+            EselLog.LogW(TAG, "Lunga pausa rilevata (" + (timeSinceLastSend / 60000) + " min). Salto la prima notifica per risincronizzare.");
+            return;
+        }
+
+        // --- UNICO E SOLO CONTROLLO: IL COOLDOWN TEMPORALE ---
         if (timeSinceLastSend < COOLDOWN_PERIOD_MS) {
-            return; // Non logghiamo per non riempire i log con notifiche vicine
-        }
-
-        // --- MODIFICA CHIAVE: Estraiamo il testo e lo usiamo per il controllo anti-spam ---
-        String fullText = extractFullText(notification);
-        if (fullText.isEmpty()) {
-            EselLog.LogW(TAG, "Notifica ricevuta ma senza testo estraibile.");
-            return;
-        }
-
-        // --- REGOLA #2: NUOVO CONTROLLO ANTI-SPAM BASATO SUL CONTENUTO ---
-        String lastProcessedText = SP.getString("last_processed_notification_text", "");
-        if (fullText.equals(lastProcessedText)) {
-            EselLog.LogI(TAG, "Notifica ignorata (Contenuto Duplicato): \"" + fullText + "\"");
-            return;
+            long timeLeft = COOLDOWN_PERIOD_MS - timeSinceLastSend;
+            // Logga un messaggio più utile per il debug
+            EselLog.LogI(TAG, "Notifica ignorata per cooldown. Mancavano " + (timeLeft / 1000) + " secondi.");
+            return; // Ignora notifiche troppo ravvicinate
         }
 
         // --- CONTROLLI SUPERATI: QUESTO È UN DATO VALIDO ---
+        String fullText = extractFullText(notification);
+        if (fullText.isEmpty()) {
+            EselLog.LogW(TAG, "Notifica ricevuta ma il testo è vuoto.");
+            return;
+        }
+
         SGV sgv = generateSGVFromText(fullText, notification.when);
         if (sgv == null) {
             EselLog.LogW(TAG, "Nessun valore glicemico valido trovato nel testo: \"" + fullText + "\"");
             return;
         }
 
-        // "Blocchiamo la porta" immediatamente salvando lo stato
+        // "Blocchiamo la porta" salvando l'ora di questo invio
         SP.putLong("lastSuccessfulSendTime", System.currentTimeMillis());
-        SP.putString("last_processed_notification_text", fullText); // Salviamo il testo di questa notifica
 
         EselLog.LogI(TAG, "Notifica valida (" + sgv.value + ") accettata. Avvio il servizio.");
         Intent serviceIntent = new Intent(this, DataMonitorService.class);
@@ -68,32 +71,25 @@ public class EsNotificationListener extends NotificationListenerService {
         ContextCompat.startForegroundService(this, serviceIntent);
     }
 
-    // --- NUOVO METODO HELPER PER ESTRARRE IL TESTO ---
     private String extractFullText(Notification notification) {
         String text = "";
         Bundle extras = notification.extras;
-        // Tentativo #1: campo EXTRA_TEXT
         if (extras != null) {
             CharSequence textChars = extras.getCharSequence(Notification.EXTRA_TEXT);
             if (textChars != null) text += textChars.toString() + " ";
         }
-        // Tentativo #2: campo tickerText (fallback)
         CharSequence tickerChars = notification.tickerText;
         if (tickerChars != null) text += tickerChars.toString();
-
         return text.trim();
     }
 
-    // --- METODO DI ESTRAZIONE MODIFICATO PER PRENDERE IL TESTO COME INPUT ---
     private SGV generateSGVFromText(String textToParse, long timestamp) {
         Matcher matcher = VALUE_PATTERN.matcher(textToParse);
         String valueString = null;
         if (matcher.find()) {
             valueString = matcher.group(1);
         }
-
         if (valueString == null) return null;
-
         int value;
         try {
             if (valueString.contains(".") || valueString.contains(",")) {
@@ -104,7 +100,6 @@ public class EsNotificationListener extends NotificationListenerService {
         } catch (NumberFormatException e) {
             return null;
         }
-
         if (value >= 20 && value <= 600) {
             return new SGV(value, timestamp, 0);
         } else {

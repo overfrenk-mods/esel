@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE SEMPLIFICATO PER minSdk 33 ----------
+// ---------- CODICE FINALE CON PULSANTE STOP RIMOSSO DALLA NOTIFICA ----------
 package esel.esel.esel.services;
 
 import android.app.AlarmManager;
@@ -50,15 +50,15 @@ public class DataMonitorService extends Service {
         SP.putBoolean("service_should_be_running", true);
 
         Notification notification = buildNotification("Servizio in attesa di dati...");
-        // --- MODIFICA: Rimosso blocco if/else per la versione. Usiamo direttamente il metodo moderno. ---
         startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
+            // La logica per fermare il servizio tramite l'interruttore nelle impostazioni rimane
             if (ACTION_STOP_SERVICE.equals(intent.getAction())) {
-                EselLog.LogW(TAG, "Azione STOP ricevuta. Termino volontariamente il servizio.");
+                EselLog.LogW(TAG, "Azione STOP ricevuta dalle impostazioni. Termino volontariamente il servizio.");
                 SP.putBoolean("service_should_be_running", false);
                 SP.putBoolean("enable_service", false);
                 cancelWatchdogAlarm();
@@ -77,7 +77,6 @@ public class DataMonitorService extends Service {
     }
 
     private void processSgv(SGV sgv) {
-        // Questo metodo rimane identico, è già perfetto.
         try {
             int lastSentRawValue = SP.getInt("lastSentRawValue", -1);
             int lastSentFinalValue = SP.getInt("lastSentFinalValue", -1);
@@ -160,10 +159,9 @@ public class DataMonitorService extends Service {
         }
     }
 
+    // --- METODO DI COSTRUZIONE NOTIFICA SEMPLIFICATO ---
     private Notification buildNotification(String contentText) {
-        Intent stopIntent = new Intent(this, DataMonitorService.class);
-        stopIntent.setAction(ACTION_STOP_SERVICE);
-        PendingIntent stopPendingIntent = PendingIntent.getService(this, 1, stopIntent, PendingIntent.FLAG_CANCEL_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        // La logica per il pulsante STOP è stata rimossa
 
         Intent notificationIntent = new Intent(this, esel.esel.esel.MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -178,7 +176,7 @@ public class DataMonitorService extends Service {
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
                 .setNotificationSilent()
-                .addAction(R.drawable.ic_stat_esel_stop, "STOP", stopPendingIntent)
+                // La riga .addAction(...) è stata rimossa.
                 .build();
     }
 
@@ -194,9 +192,8 @@ public class DataMonitorService extends Service {
 
     @Nullable @Override public IBinder onBind(Intent intent) { return null; }
 
-    // --- METODO SEMPLIFICATO ---
-    // Il controllo if(Build.VERSION...) è stato rimosso.
     private void createNotificationChannel() {
+        // Questo metodo non ha più il controllo di versione, l'abbiamo già rimosso
         NotificationChannel serviceChannel = new NotificationChannel(CHANNEL_ID, "Eversense-Reader Service", NotificationManager.IMPORTANCE_LOW);
         serviceChannel.setDescription("Notifica persistente per il monitoraggio dati.");
         NotificationManager manager = getSystemService(NotificationManager.class);
