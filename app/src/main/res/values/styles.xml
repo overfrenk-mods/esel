@@ -1,0 +1,24 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <style name="AppTheme" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/green_primary</item>
+        <item name="colorPrimaryDark">@color/green_dark</item>
+
+        <item name="android:windowBackground">@color/dark_background</item>
+
+        <item name="android:textColorPrimary">@color/text_primary_on_dark</item>
+        <item name="android:textColorSecondary">@color/text_secondary_on_dark</item>
+
+        <item name="alertDialogTheme">@style/AppTheme.AlertDialogTheme</item>
+    </style>
+
+    <style name="AppTheme.AppBarOverlay" parent="ThemeOverlay.AppCompat.Dark.ActionBar" />
+
+    <style name="AppTheme.PopupOverlay" parent="ThemeOverlay.AppCompat.Dark" />
+
+    <style name="AppTheme.AlertDialogTheme" parent="ThemeOverlay.MaterialComponents.Dialog.Alert">
+        <item name="colorPrimary">@color/green_primary</item>
+        <item name="colorSecondary">@color/colorAccent</item>
+    </style>
+
+</resources>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <!-- Pulsante per pulire i log -->
+    <item
+        android:id="@+id/action_clear_log"
+        android:title="Pulisci Log"
+        android:icon="@drawable/ic_clear_log"
+        app:showAsAction="ifRoom" />
+
+    <!-- NUOVO: Pulsante per condividere/esportare i log -->
+    <item
+        android:id="@+id/action_share_log"
+        android:title="Condividi Log"
+        android:icon="@drawable/ic_share_log"
+        app:showAsAction="ifRoom" />
+
+    <!-- Pulsante Filtro con sottomenu -->
+    <item
+        android:id="@+id/action_filter"
+        android:title="Filtra"
+        android:icon="@drawable/ic_filter_log"
+        app:showAsAction="ifRoom">
+        <menu>
+            <item
+                android:id="@+id/filter_all"
+                android:title="Mostra Tutti" />
+            <item
+                android:id="@+id/filter_info"
+                android:title="Solo Info" />
+            <item
+                android:id="@+id/filter_warning"
+                android:title="Solo Warning" />
+            <item
+                android:id="@+id/filter_error"
+                android:title="Solo Error" />
+        </menu>
+    </item>
+
+</menu>
