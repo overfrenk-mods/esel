@@ -1,5 +1,5 @@
 // ---------- CODICE FINALE E DEFINITIVO CON FILTRO TEMPORALE PURO ----------
-package esel.esel.esel.datareader;
+        package esel.esel.esel.datareader;
 
 import android.app.Notification;
 import android.content.Intent;
@@ -109,5 +109,6 @@ public class EsNotificationListener extends NotificationListenerService {
     }
 
     @Override public void onListenerConnected() { super.onListenerConnected(); EselLog.LogI(TAG, "Notification Listener connesso."); }
-    @Override public void onListenerDisconnected() { super.onListenerDisconnected(); EselLog.LogW(TAG, "Notification Listener disconnesso."); }
+    @Override public void onListenerDisconnected() { super.onListenerDisconnected(); EselLog.LogW(TAG, "Notification Listener disconnesso.");
+    }
 }

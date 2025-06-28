@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE CON PULSANTE STOP RIMOSSO DALLA NOTIFICA ----------
+// ---------- CODICE COMPLETO, CORRETTO E PRONTO ALLA COMPILAZIONE ----------
 package esel.esel.esel.services;
 
 import android.app.AlarmManager;
@@ -50,13 +50,16 @@ public class DataMonitorService extends Service {
         SP.putBoolean("service_should_be_running", true);
 
         Notification notification = buildNotification("Servizio in attesa di dati...");
-        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
-            // La logica per fermare il servizio tramite l'interruttore nelle impostazioni rimane
             if (ACTION_STOP_SERVICE.equals(intent.getAction())) {
                 EselLog.LogW(TAG, "Azione STOP ricevuta dalle impostazioni. Termino volontariamente il servizio.");
                 SP.putBoolean("service_should_be_running", false);
@@ -81,6 +84,12 @@ public class DataMonitorService extends Service {
             int lastSentRawValue = SP.getInt("lastSentRawValue", -1);
             int lastSentFinalValue = SP.getInt("lastSentFinalValue", -1);
             long lastSentTime = SP.getLong("lastSentTime", -1L);
+
+            if (lastSentTime > 0 && sgv.timestamp == lastSentTime) {
+                EselLog.LogW(TAG, "SGV scartato: timestamp identico all'ultimo invio. (" + sgv.timestamp + ")");
+                return;
+            }
+
             boolean hasTimeGap = (lastSentTime > 0) && (sgv.timestamp - lastSentTime) > 12 * 60 * 1000L;
             int finalValue = sgv.raw;
             boolean smoothing_enabled = SP.getBoolean("smooth_data", false);
@@ -110,8 +119,9 @@ public class DataMonitorService extends Service {
             String notificationText = "Ultimo invio: " + sgv.value + " " + trendArrow + " alle " + df.format(new Date(sgv.timestamp));
             updateNotification(notificationText);
 
-        } catch (Exception e) {
-            EselLog.LogE(TAG, "Errore critico durante il processamento del SGV: " + e.getMessage());
+        } catch (Throwable t) {
+            // Usiamo android.util.Log.e che accetta un Throwable per stampare l'intero errore.
+            android.util.Log.e(TAG, "Errore critico durante il processamento del SGV:", t);
         }
     }
 
@@ -159,10 +169,7 @@ public class DataMonitorService extends Service {
         }
     }
 
-    // --- METODO DI COSTRUZIONE NOTIFICA SEMPLIFICATO ---
     private Notification buildNotification(String contentText) {
-        // La logica per il pulsante STOP è stata rimossa
-
         Intent notificationIntent = new Intent(this, esel.esel.esel.MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
@@ -175,8 +182,6 @@ public class DataMonitorService extends Service {
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
-                .setNotificationSilent()
-                // La riga .addAction(...) è stata rimossa.
                 .build();
     }
 
@@ -185,7 +190,9 @@ public class DataMonitorService extends Service {
         PendingIntent pendingIntent = PendingIntent.getBroadcast(this, WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE);
         if (pendingIntent != null) {
             AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
-            alarmManager.cancel(pendingIntent);
+            if (alarmManager != null) {
+                alarmManager.cancel(pendingIntent);
+            }
             EselLog.LogI(TAG, "Allarme Watchdog cancellato.");
         }
     }
@@ -193,12 +200,13 @@ public class DataMonitorService extends Service {
     @Nullable @Override public IBinder onBind(Intent intent) { return null; }
 
     private void createNotificationChannel() {
-        // Questo metodo non ha più il controllo di versione, l'abbiamo già rimosso
-        NotificationChannel serviceChannel = new NotificationChannel(CHANNEL_ID, "Eversense-Reader Service", NotificationManager.IMPORTANCE_LOW);
-        serviceChannel.setDescription("Notifica persistente per il monitoraggio dati.");
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager != null) {
-            manager.createNotificationChannel(serviceChannel);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel serviceChannel = new NotificationChannel(CHANNEL_ID, "Eversense-Reader Service", NotificationManager.IMPORTANCE_LOW);
+            serviceChannel.setDescription("Notifica persistente per il monitoraggio dati.");
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(serviceChannel);
+            }
         }
     }
 }
