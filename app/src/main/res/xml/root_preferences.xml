@@ -19,6 +19,12 @@
             app:selectable="false" />
 
         <Preference
+            app:key="manual_sync_button"
+            app:title="SINCRONIZZAZIONE MANUALE"
+            app:summary="Forza l'invio dell'ultima lettura valida ricevuta dal sensore e resetta il ciclo."
+            app:icon="@android:drawable/ic_popup_sync" />
+
+        <Preference
             app:key="status_last_send"
             app:title="Ultimo Invio Riuscito"
             app:summary="Nessun invio ancora effettuato"

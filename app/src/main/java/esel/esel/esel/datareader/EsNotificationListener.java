@@ -1,24 +1,34 @@
-// ---------- CODICE FINALE E DEFINITIVO CON FILTRO TEMPORALE PURO ----------
-        package esel.esel.esel.datareader;
+// ---------- CODICE DEFINITIVO CON RANGE DI LETTURA UFFICIALE (40-400) ----------
+package esel.esel.esel.datareader;
 
 import android.app.Notification;
 import android.content.Intent;
 import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
-import androidx.core.content.ContextCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
+import java.util.HashSet;
+import java.util.Set;
+import java.util.StringJoiner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
 
 public class EsNotificationListener extends NotificationListenerService {
     private static final String TAG = "EsNotificationListener";
-    private static final long COOLDOWN_PERIOD_MS = (5 * 60 * 1000L) - 10000L;
-    private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
+
+    public static final String ACTION_NEW_SGV_DATA = "esel.esel.esel.ACTION_NEW_SGV_DATA";
+    public static final String EXTRA_SGV_DATA = "esel.esel.esel.EXTRA_SGV_DATA";
+    public static final String KEY_LAST_SEEN_NOTIFICATION_TEXT = "last_seen_notification_text";
+    public static final String KEY_LAST_SEEN_NOTIFICATION_WHEN = "last_seen_notification_when";
+
+    private static String lastProcessedText = "";
+    private static long lastProcessedTimeMs = 0;
+    private static final long DEBOUNCE_WINDOW_MS = 10000;
+
     private static final Pattern VALUE_PATTERN = Pattern.compile("(?<!\\d:)\\b(\\d+([,.]\\d+)?)\\b(?!:\\d)");
 
     @Override
@@ -31,30 +41,19 @@ public class EsNotificationListener extends NotificationListenerService {
         Notification notification = sbn.getNotification();
         if (notification == null) return;
 
-        // --- GESTIONE DELLE LUNGHE PAUSE (RICARICA/RIAVVIO) ---
-        long lastSuccessfulSendTime = SP.getLong("lastSuccessfulSendTime", 0L);
-        long timeSinceLastSend = System.currentTimeMillis() - lastSuccessfulSendTime;
-
-        if (lastSuccessfulSendTime > 0 && timeSinceLastSend > LONG_PAUSE_THRESHOLD_MS) {
-            SP.putLong("lastSuccessfulSendTime", System.currentTimeMillis()); // Reset immediato del cooldown
-            EselLog.LogW(TAG, "Lunga pausa rilevata (" + (timeSinceLastSend / 60000) + " min). Salto la prima notifica per risincronizzare.");
-            return;
-        }
-
-        // --- UNICO E SOLO CONTROLLO: IL COOLDOWN TEMPORALE ---
-        if (timeSinceLastSend < COOLDOWN_PERIOD_MS) {
-            long timeLeft = COOLDOWN_PERIOD_MS - timeSinceLastSend;
-            // Logga un messaggio più utile per il debug
-            EselLog.LogI(TAG, "Notifica ignorata per cooldown. Mancavano " + (timeLeft / 1000) + " secondi.");
-            return; // Ignora notifiche troppo ravvicinate
-        }
-
-        // --- CONTROLLI SUPERATI: QUESTO È UN DATO VALIDO ---
         String fullText = extractFullText(notification);
         if (fullText.isEmpty()) {
             EselLog.LogW(TAG, "Notifica ricevuta ma il testo è vuoto.");
             return;
         }
+
+        long currentTime = System.currentTimeMillis();
+        if (fullText.equals(lastProcessedText) && (currentTime - lastProcessedTimeMs < DEBOUNCE_WINDOW_MS)) {
+            EselLog.LogI(TAG, "Notifica duplicata ignorata (debounce): \"" + fullText + "\"");
+            return;
+        }
+        lastProcessedText = fullText;
+        lastProcessedTimeMs = currentTime;
 
         SGV sgv = generateSGVFromText(fullText, notification.when);
         if (sgv == null) {
@@ -62,28 +61,45 @@ public class EsNotificationListener extends NotificationListenerService {
             return;
         }
 
-        // "Blocchiamo la porta" salvando l'ora di questo invio
-        SP.putLong("lastSuccessfulSendTime", System.currentTimeMillis());
+        SP.putString(KEY_LAST_SEEN_NOTIFICATION_TEXT, fullText);
+        SP.putLong(KEY_LAST_SEEN_NOTIFICATION_WHEN, notification.when);
 
-        EselLog.LogI(TAG, "Notifica valida (" + sgv.value + ") accettata. Avvio il servizio.");
-        Intent serviceIntent = new Intent(this, DataMonitorService.class);
-        serviceIntent.putExtra("sgv_data", sgv);
-        ContextCompat.startForegroundService(this, serviceIntent);
+        EselLog.LogI(TAG, "Notifica valida (" + sgv.value + ") accettata. Invio broadcast locale al servizio.");
+        Intent serviceIntent = new Intent(ACTION_NEW_SGV_DATA);
+        serviceIntent.putExtra(EXTRA_SGV_DATA, sgv);
+        LocalBroadcastManager.getInstance(this).sendBroadcast(serviceIntent);
     }
 
     private String extractFullText(Notification notification) {
-        String text = "";
+        Set<String> textParts = new HashSet<>();
         Bundle extras = notification.extras;
+
         if (extras != null) {
+            CharSequence titleChars = extras.getCharSequence(Notification.EXTRA_TITLE);
+            if (titleChars != null && !titleChars.toString().trim().isEmpty()) {
+                textParts.add(titleChars.toString().trim());
+            }
+
             CharSequence textChars = extras.getCharSequence(Notification.EXTRA_TEXT);
-            if (textChars != null) text += textChars.toString() + " ";
+            if (textChars != null && !textChars.toString().trim().isEmpty()) {
+                textParts.add(textChars.toString().trim());
+            }
         }
+
         CharSequence tickerChars = notification.tickerText;
-        if (tickerChars != null) text += tickerChars.toString();
-        return text.trim();
+        if (tickerChars != null && !tickerChars.toString().trim().isEmpty()) {
+            textParts.add(tickerChars.toString().trim());
+        }
+
+        StringJoiner joiner = new StringJoiner(" ");
+        for (String part : textParts) {
+            joiner.add(part);
+        }
+        return joiner.toString();
     }
 
-    private SGV generateSGVFromText(String textToParse, long timestamp) {
+
+    public static SGV generateSGVFromText(String textToParse, long timestamp) {
         Matcher matcher = VALUE_PATTERN.matcher(textToParse);
         String valueString = null;
         if (matcher.find()) {
@@ -100,15 +116,25 @@ public class EsNotificationListener extends NotificationListenerService {
         } catch (NumberFormatException e) {
             return null;
         }
-        if (value >= 20 && value <= 600) {
+
+        // --- FIX: Aggiornato al range ufficiale Eversense (40-400) ---
+        if (value >= 40 && value <= 400) {
             return new SGV(value, timestamp, 0);
         } else {
-            EselLog.LogW(TAG, "Valore estratto (" + value + ") fuori dal range plausibile (20-600). Scartato.");
+            EselLog.LogW(TAG, "Valore estratto (" + value + ") fuori dal range ufficiale (40-400). Scartato.");
             return null;
         }
     }
 
-    @Override public void onListenerConnected() { super.onListenerConnected(); EselLog.LogI(TAG, "Notification Listener connesso."); }
-    @Override public void onListenerDisconnected() { super.onListenerDisconnected(); EselLog.LogW(TAG, "Notification Listener disconnesso.");
+    @Override
+    public void onListenerConnected() {
+        super.onListenerConnected();
+        EselLog.LogI(TAG, "Notification Listener connesso.");
+    }
+
+    @Override
+    public void onListenerDisconnected() {
+        super.onListenerDisconnected();
+        EselLog.LogW(TAG, "Notification Listener disconnesso.");
     }
 }

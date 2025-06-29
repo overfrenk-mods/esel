@@ -1,4 +1,4 @@
-// ---------- CODICE COMPLETO, CORRETTO E PRONTO ALLA COMPILAZIONE ----------
+// ---------- CODICE COMPLETO E NON ABBREVIATO ----------
 package esel.esel.esel.services;
 
 import android.app.AlarmManager;
@@ -7,14 +7,17 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
@@ -25,6 +28,7 @@ import java.util.concurrent.Executors;
 
 import esel.esel.esel.R;
 import esel.esel.esel.datareader.SGV;
+import esel.esel.esel.datareader.EsNotificationListener;
 import esel.esel.esel.receivers.ServiceRestarter;
 import esel.esel.esel.receivers.WatchdogReceiver;
 import esel.esel.esel.util.AapsSender;
@@ -36,9 +40,18 @@ public class DataMonitorService extends Service {
     public static final String CHANNEL_ID = "EselMonitorChannel";
     public static final int NOTIFICATION_ID = 101;
     public static final String ACTION_STOP_SERVICE = "esel.esel.esel.ACTION_STOP_SERVICE";
+    public static final String ACTION_MANUAL_SYNC = "esel.esel.esel.ACTION_MANUAL_SYNC";
     public static final int WATCHDOG_REQUEST_CODE = 901;
 
+    public static final String KEY_LAST_SUCCESSFUL_SEND_MS = "status_last_successful_send_ms";
+    public static final String KEY_LAST_SGV_TIMESTAMP = "status_last_sgv_timestamp";
+    public static final String KEY_LAST_SGV_RAW_VALUE = "status_last_sgv_raw_value";
+    public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
+
+    private static final long COOLDOWN_PERIOD_MS = (5 * 60 * 1000L) - 15000L;
+
     private ExecutorService executor;
+    private BroadcastReceiver sgvDataReceiver;
 
     @Override
     public void onCreate() {
@@ -46,9 +59,8 @@ public class DataMonitorService extends Service {
         EselLog.LogI(TAG, "DataMonitorService onCreate.");
         executor = Executors.newSingleThreadExecutor();
         createNotificationChannel();
-
+        setupSgvDataReceiver();
         SP.putBoolean("service_should_be_running", true);
-
         Notification notification = buildNotification("Servizio in attesa di dati...");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
@@ -61,68 +73,98 @@ public class DataMonitorService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
             if (ACTION_STOP_SERVICE.equals(intent.getAction())) {
-                EselLog.LogW(TAG, "Azione STOP ricevuta dalle impostazioni. Termino volontariamente il servizio.");
-                SP.putBoolean("service_should_be_running", false);
-                SP.putBoolean("enable_service", false);
-                cancelWatchdogAlarm();
-                stopForeground(true);
-                stopSelf();
+                EselLog.LogW(TAG, "Azione STOP ricevuta. Termino volontariamente il servizio.");
+                stopSelfService();
                 return START_NOT_STICKY;
             }
-            if (intent.hasExtra("sgv_data")) {
-                final SGV sgv = (SGV) intent.getSerializableExtra("sgv_data");
-                if (sgv != null) {
-                    executor.execute(() -> processSgv(sgv));
+            if (ACTION_MANUAL_SYNC.equals(intent.getAction())) {
+                EselLog.LogW(TAG, "RICEVUTO COMANDO DI SYNC MANUALE!");
+                if (intent.hasExtra(EsNotificationListener.EXTRA_SGV_DATA)) {
+                    final SGV sgv = (SGV) intent.getSerializableExtra(EsNotificationListener.EXTRA_SGV_DATA);
+                    if (sgv != null) {
+                        executor.execute(() -> processSgv(sgv, true));
+                    }
                 }
             }
         }
         return START_STICKY;
     }
 
-    private void processSgv(SGV sgv) {
-        try {
-            int lastSentRawValue = SP.getInt("lastSentRawValue", -1);
-            int lastSentFinalValue = SP.getInt("lastSentFinalValue", -1);
-            long lastSentTime = SP.getLong("lastSentTime", -1L);
+    private void setupSgvDataReceiver() {
+        sgvDataReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                if (intent != null && intent.hasExtra(EsNotificationListener.EXTRA_SGV_DATA)) {
+                    final SGV sgv = (SGV) intent.getSerializableExtra(EsNotificationListener.EXTRA_SGV_DATA);
+                    if (sgv != null) {
+                        executor.execute(() -> processSgv(sgv, false));
+                    }
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(EsNotificationListener.ACTION_NEW_SGV_DATA);
+        LocalBroadcastManager.getInstance(this).registerReceiver(sgvDataReceiver, filter);
+    }
 
-            if (lastSentTime > 0 && sgv.timestamp == lastSentTime) {
-                EselLog.LogW(TAG, "SGV scartato: timestamp identico all'ultimo invio. (" + sgv.timestamp + ")");
-                return;
+    private void processSgv(SGV sgv, boolean isManualOverride) {
+        try {
+            if (!isManualOverride) {
+                final long lastSentTime = SP.getLong(KEY_LAST_SUCCESSFUL_SEND_MS, 0L);
+                if (lastSentTime > 0 && (System.currentTimeMillis() - lastSentTime) < COOLDOWN_PERIOD_MS) {
+                    EselLog.LogI(TAG, "[FILTRO] Scartato per cooldown. Ultimo invio troppo recente.");
+                    return;
+                }
+            } else {
+                EselLog.LogW(TAG, "SYNC MANUALE: Filtri temporali bypassati.");
             }
 
-            boolean hasTimeGap = (lastSentTime > 0) && (sgv.timestamp - lastSentTime) > 12 * 60 * 1000L;
+            int lastSentRawValue = SP.getInt(KEY_LAST_SGV_RAW_VALUE, -1);
+            int lastSentFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
+            long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
+            boolean hasTimeGap = (lastSgvTimestamp > 0) && (sgv.timestamp - lastSgvTimestamp) > 12 * 60 * 1000L;
             int finalValue = sgv.raw;
             boolean smoothing_enabled = SP.getBoolean("smooth_data", false);
             if (smoothing_enabled && lastSentRawValue != -1 && !hasTimeGap) {
                 sgv.smooth(lastSentRawValue);
                 finalValue = sgv.value;
             }
+
             double slopeByMinute = 0d;
-            if (lastSentTime > 0 && !hasTimeGap) {
-                slopeByMinute = (double) (finalValue - lastSentFinalValue) * 60000.0d / (double) (sgv.timestamp - lastSentTime);
-                sgv.setDirection(slopeByMinute);
+            if (lastSgvTimestamp > 0 && !hasTimeGap) {
+                long timeDiff = sgv.timestamp - lastSgvTimestamp;
+                if (timeDiff > 0) {
+                    slopeByMinute = (double) (finalValue - lastSentFinalValue) * 60000.0d / (double) timeDiff;
+                    sgv.setDirection(slopeByMinute);
+                }
             }
+
             sgv.value = finalValue;
             DateFormat df = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
             EselLog.LogI(TAG, "Pronto per invio: Valore=" + sgv.value + " (Grezzo=" + sgv.raw + ") | Direzione=" + sgv.direction);
-            if (SP.getBoolean("send_to_AAPS", true)) {
-                AapsSender.sendToAaps(getApplicationContext(), sgv);
-            }
-            if (SP.getBoolean("send_to_NS", false)) {
-                AapsSender.sendToNsClient(getApplicationContext(), sgv);
-            }
-            SP.putLong("lastSentTime", sgv.timestamp);
-            SP.putInt("lastSentRawValue", sgv.raw);
-            SP.putInt("lastSentFinalValue", finalValue);
+
+            if (SP.getBoolean("send_to_AAPS", true)) { AapsSender.sendToAaps(getApplicationContext(), sgv); }
+            if (SP.getBoolean("send_to_NS", false)) { AapsSender.sendToNsClient(getApplicationContext(), sgv); }
+
+            SP.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, System.currentTimeMillis());
+            SP.putLong(KEY_LAST_SGV_TIMESTAMP, sgv.timestamp);
+            SP.putInt(KEY_LAST_SGV_RAW_VALUE, sgv.raw);
+            SP.putInt(KEY_LAST_SGV_FINAL_VALUE, finalValue);
 
             String trendArrow = getTrendArrow(sgv.direction);
             String notificationText = "Ultimo invio: " + sgv.value + " " + trendArrow + " alle " + df.format(new Date(sgv.timestamp));
             updateNotification(notificationText);
 
         } catch (Throwable t) {
-            // Usiamo android.util.Log.e che accetta un Throwable per stampare l'intero errore.
             android.util.Log.e(TAG, "Errore critico durante il processamento del SGV:", t);
         }
+    }
+
+    private void stopSelfService() {
+        SP.putBoolean("service_should_be_running", false);
+        SP.putBoolean("enable_service", false);
+        cancelWatchdogAlarm();
+        stopForeground(true);
+        stopSelf();
     }
 
     private String getTrendArrow(String direction) {
@@ -143,6 +185,9 @@ public class DataMonitorService extends Service {
     public void onDestroy() {
         super.onDestroy();
         EselLog.LogW(TAG, "DataMonitorService onDestroy.");
+        if (sgvDataReceiver != null) {
+            LocalBroadcastManager.getInstance(this).unregisterReceiver(sgvDataReceiver);
+        }
         if (SP.getBoolean("service_should_be_running", false)) {
             EselLog.LogW(TAG, "Distruzione non volontaria. Invio broadcast per il riavvio...");
             Intent broadcastIntent = new Intent(this, ServiceRestarter.class);
@@ -172,7 +217,6 @@ public class DataMonitorService extends Service {
     private Notification buildNotification(String contentText) {
         Intent notificationIntent = new Intent(this, esel.esel.esel.MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Eversense-Reader Attivo")
                 .setContentText(contentText)
@@ -197,7 +241,11 @@ public class DataMonitorService extends Service {
         }
     }
 
-    @Nullable @Override public IBinder onBind(Intent intent) { return null; }
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
