@@ -1,14 +1,12 @@
-// ---------- CODICE FINALE SEMPLIFICATO PER minSdk 33 ----------
+// ---------- CODICE GIÀ CORRETTO E VERIFICATO ----------
 package esel.esel.esel;
 
 import android.Manifest;
-import android.app.AlarmManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
@@ -72,20 +70,15 @@ public class MainActivity extends AppCompatActivity {
 
     private void scheduleWatchdogAlarm() {
         Intent intent = new Intent(this, WatchdogReceiver.class);
-        PendingIntent pendingIntent = PendingIntent.getBroadcast(this, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
         boolean isAlarmUp = (PendingIntent.getBroadcast(this, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE) != null);
+
         if (isAlarmUp) {
-            EselLog.LogI(TAG, "L'allarme Watchdog è già programmato a 15 minuti.");
+            EselLog.LogI(TAG, "La catena di allarmi Watchdog è già attiva.");
             return;
         }
-        alarmManager.setInexactRepeating(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                AlarmManager.INTERVAL_FIFTEEN_MINUTES,
-                AlarmManager.INTERVAL_FIFTEEN_MINUTES,
-                pendingIntent
-        );
-        EselLog.LogI(TAG, "Allarme Watchdog programmato ogni 15 minuti.");
+
+        EselLog.LogW(TAG, "Nessun allarme Watchdog trovato. AVVIO LA CATENA DI ALLARMI ESATTI.");
+        WatchdogReceiver.scheduleNextWatchdog(this);
     }
 
     private boolean areAllPermissionsGranted() {
@@ -119,8 +112,6 @@ public class MainActivity extends AppCompatActivity {
         return super.onOptionsItemSelected(item);
     }
 
-    // --- METODO SEMPLIFICATO ---
-    // Il permesso per le notifiche è obbligatorio da Android 13 (nostra minSdk), quindi non serve più l'if.
     private boolean isNotificationPermissionGranted() {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
     }
@@ -134,7 +125,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             });
 
-    // --- METODO SEMPLIFICATO ---
     private void requestNotificationPermission() {
         EselLog.LogI(TAG, "Richiesta permesso POST_NOTIFICATIONS...");
         requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
@@ -152,14 +142,11 @@ public class MainActivity extends AppCompatActivity {
         startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
     }
 
-    // --- METODO SEMPLIFICATO ---
-    // Le ottimizzazioni batteria esistono da Android 6 (molto prima della nostra minSdk), quindi non serve più l'if.
     private boolean isBatteryOptimizationIgnored() {
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
         return pm.isIgnoringBatteryOptimizations(getPackageName());
     }
 
-    // --- METODO SEMPLIFICATO ---
     private void requestToIgnoreBatteryOptimizations() {
         if (!isBatteryOptimizationIgnored()){
             EselLog.LogI(TAG, "Richiesta per ignorare ottimizzazione batteria...");

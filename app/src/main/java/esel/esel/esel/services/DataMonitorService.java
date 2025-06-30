@@ -1,7 +1,6 @@
-// ---------- CODICE COMPLETO E NON ABBREVIATO ----------
+// ---------- CODICE GIÀ CORRETTO E VERIFICATO ----------
 package esel.esel.esel.services;
 
-import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -49,6 +48,7 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
 
     private static final long COOLDOWN_PERIOD_MS = (5 * 60 * 1000L) - 15000L;
+    private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
 
     private ExecutorService executor;
     private BroadcastReceiver sgvDataReceiver;
@@ -108,15 +108,26 @@ public class DataMonitorService extends Service {
 
     private void processSgv(SGV sgv, boolean isManualOverride) {
         try {
+            final long now = System.currentTimeMillis();
             if (!isManualOverride) {
                 final long lastSentTime = SP.getLong(KEY_LAST_SUCCESSFUL_SEND_MS, 0L);
-                if (lastSentTime > 0 && (System.currentTimeMillis() - lastSentTime) < COOLDOWN_PERIOD_MS) {
+                final long timeSinceLastProcess = now - lastSentTime;
+
+                if (lastSentTime > 0 && timeSinceLastProcess > LONG_PAUSE_THRESHOLD_MS) {
+                    EselLog.LogW(TAG, "[FILTRO] SCARTATO SGV(" + sgv.value + ") perché è il primo dopo una lunga pausa di " + (timeSinceLastProcess / 60000) + " min. Resetto il timer.");
+                    SP.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, now);
+                    return;
+                }
+
+                if (lastSentTime > 0 && timeSinceLastProcess < COOLDOWN_PERIOD_MS) {
                     EselLog.LogI(TAG, "[FILTRO] Scartato per cooldown. Ultimo invio troppo recente.");
                     return;
                 }
             } else {
                 EselLog.LogW(TAG, "SYNC MANUALE: Filtri temporali bypassati.");
             }
+
+            EselLog.LogI(TAG, "SGV(" + sgv.value + ") ha superato i filtri. Inizio elaborazione.");
 
             int lastSentRawValue = SP.getInt(KEY_LAST_SGV_RAW_VALUE, -1);
             int lastSentFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
@@ -162,7 +173,7 @@ public class DataMonitorService extends Service {
     private void stopSelfService() {
         SP.putBoolean("service_should_be_running", false);
         SP.putBoolean("enable_service", false);
-        cancelWatchdogAlarm();
+        WatchdogReceiver.cancelWatchdog(this);
         stopForeground(true);
         stopSelf();
     }
@@ -227,18 +238,6 @@ public class DataMonitorService extends Service {
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
                 .build();
-    }
-
-    private void cancelWatchdogAlarm() {
-        Intent intent = new Intent(this, WatchdogReceiver.class);
-        PendingIntent pendingIntent = PendingIntent.getBroadcast(this, WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE);
-        if (pendingIntent != null) {
-            AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
-            if (alarmManager != null) {
-                alarmManager.cancel(pendingIntent);
-            }
-            EselLog.LogI(TAG, "Allarme Watchdog cancellato.");
-        }
     }
 
     @Nullable

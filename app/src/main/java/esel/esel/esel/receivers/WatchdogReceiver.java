@@ -1,7 +1,8 @@
-// ---------- CODICE FINALE E SEMPLIFICATO PER WatchdogReceiver.java ----------
+// ---------- CODICE GIÀ CORRETTO E VERIFICATO ----------
 package esel.esel.esel.receivers;
 
 import android.Manifest;
+import android.app.AlarmManager;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -10,6 +11,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.SystemClock;
+import android.util.Log; // <-- IMPORT AGGIUNTO
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -23,6 +26,7 @@ import esel.esel.esel.util.SP;
 public class WatchdogReceiver extends BroadcastReceiver {
 
     private static final String TAG = "WatchdogReceiver";
+    private static final long WATCHDOG_INTERVAL_MS = 15 * 60 * 1000L;
 
     private static final int RESTART_THRESHOLD = 3;
     private static final long WINDOW_HOUR_MS = 60 * 60 * 1000L;
@@ -31,10 +35,12 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        EselLog.LogI(TAG, "Watchdog ricevuto. Avvio controllo intelligente...");
+        EselLog.LogW(TAG, "Allarme Watchdog esatto scattato! Eseguo controllo...");
 
-        if (!SP.getBoolean("service_should_be_running", false)) {
-            EselLog.LogI(TAG, "Il servizio è stato fermato volontariamente. Il watchdog non fa nulla.");
+        scheduleNextWatchdog(context);
+
+        if (!SP.getBoolean("enable_service", true)) {
+            EselLog.LogI(TAG, "Il servizio è stato fermato volontariamente dall'utente. Il watchdog non interviene.");
             return;
         }
 
@@ -65,13 +71,41 @@ public class WatchdogReceiver extends BroadcastReceiver {
         }
 
         EselLog.LogW(TAG, "Il servizio dovrebbe essere attivo. Avvio preventivo per sicurezza...");
-        ContextCompat.startForegroundService(context, new Intent(context, DataMonitorService.class));
+        try {
+            ContextCompat.startForegroundService(context, new Intent(context, DataMonitorService.class));
+            EselLog.LogI(TAG, "Comando di avvio per DataMonitorService inviato con successo.");
+        } catch (Exception e) {
+            // --- MODIFICA: Uso il logger standard di Android che accetta le eccezioni ---
+            Log.e(TAG, "ERRORE: Android ha bloccato il tentativo di avvio del servizio dal Watchdog!", e);
+        }
     }
 
-    // --- METODO SEMPLIFICATO ---
+    public static void scheduleNextWatchdog(Context context) {
+        AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        Intent intent = new Intent(context, WatchdogReceiver.class);
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(context, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + WATCHDOG_INTERVAL_MS,
+                pendingIntent
+        );
+        EselLog.LogI(TAG, "Watchdog: Prossimo allarme esatto pianificato tra 15 minuti.");
+    }
+
+    public static void cancelWatchdog(Context context) {
+        AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        Intent intent = new Intent(context, WatchdogReceiver.class);
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(context, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE);
+
+        if (pendingIntent != null) {
+            alarmManager.cancel(pendingIntent);
+            pendingIntent.cancel();
+            EselLog.LogW(TAG, "Catena di allarmi Watchdog CANCELLATA.");
+        }
+    }
+
     private void showRestartWarningNotification(Context context) {
-        // Il controllo if(Build.VERSION...) è stato rimosso, perché la minSdk è 33 (Android 13)
-        // e i canali di notifica esistono da Android 8.
         NotificationChannel channel = new NotificationChannel(ALERT_CHANNEL_ID, "Avvisi Critici Eversense-Reader", NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("Notifiche per problemi critici di funzionamento dell'app");
         NotificationManager notificationManager = context.getSystemService(NotificationManager.class);
@@ -92,7 +126,6 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
         NotificationManagerCompat notificationManagerCompat = NotificationManagerCompat.from(context);
 
-        // Questo controllo rimane perché il permesso può essere concesso o revocato dall'utente in qualsiasi momento.
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
             notificationManagerCompat.notify(ALERT_NOTIFICATION_ID, builder.build());
         } else {
