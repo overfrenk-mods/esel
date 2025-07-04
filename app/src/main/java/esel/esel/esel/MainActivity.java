@@ -1,4 +1,4 @@
-// ---------- CODICE GIÀ CORRETTO E VERIFICATO ----------
+// ---------- CODICE FINALE CON AVVIO ROBUSTO DELL'ALLARME ----------
 package esel.esel.esel;
 
 import android.Manifest;
@@ -7,7 +7,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.Menu;
@@ -20,6 +23,10 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.ContextCompat;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
 import esel.esel.esel.receivers.WatchdogReceiver;
 import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
@@ -28,6 +35,7 @@ import esel.esel.esel.util.SP;
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
+    private final Handler handler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -77,18 +85,50 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        EselLog.LogW(TAG, "Nessun allarme Watchdog trovato. AVVIO LA CATENA DI ALLARMI ESATTI.");
-        WatchdogReceiver.scheduleNextWatchdog(this);
+        // **FIX PER IL CRASH AL RIAVVIO**
+        // Avviamo la catena di allarmi con un piccolo ritardo per dare al sistema il tempo di stabilizzarsi.
+        handler.postDelayed(() -> {
+            EselLog.LogW(TAG, "Nessun allarme Watchdog trovato. AVVIO LA CATENA DI ALLARMI ESATTI con ritardo.");
+            WatchdogReceiver.scheduleNextWatchdog(this);
+        }, 2000); // Ritardo di 2 secondi
     }
 
+    private String[] getRequiredPermissions() {
+        List<String> permissions = new ArrayList<>();
+        permissions.add(Manifest.permission.POST_NOTIFICATIONS);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions.add(Manifest.permission.BLUETOOTH_SCAN);
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
+        }
+        // Il permesso per la posizione è richiesto per la scansione bluetooth
+        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        return permissions.toArray(new String[0]);
+    }
+
+
     private boolean areAllPermissionsGranted() {
-        return isNotificationPermissionGranted() && isNotificationListenerEnabled() && isBatteryOptimizationIgnored();
+        for (String permission : getRequiredPermissions()) {
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                return false;
+            }
+        }
+        return isNotificationListenerEnabled() && isBatteryOptimizationIgnored();
     }
 
     private void requestMissingPermissions() {
-        if (!isNotificationPermissionGranted()) {
-            requestNotificationPermission();
+        List<String> missingPermissions = new ArrayList<>();
+        for (String permission : getRequiredPermissions()) {
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                missingPermissions.add(permission);
+            }
         }
+
+        if (!missingPermissions.isEmpty()) {
+            EselLog.LogI(TAG, "Richiesta permessi runtime: " + missingPermissions);
+            multiplePermissionsLauncher.launch(missingPermissions.toArray(new String[0]));
+        }
+
         if (!isNotificationListenerEnabled()) {
             requestNotificationListenerPermission();
         }
@@ -96,6 +136,19 @@ public class MainActivity extends AppCompatActivity {
             requestToIgnoreBatteryOptimizations();
         }
     }
+
+    private final ActivityResultLauncher<String[]> multiplePermissionsLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), (Map<String, Boolean> grants) -> {
+                for (Map.Entry<String, Boolean> entry : grants.entrySet()) {
+                    if (entry.getValue()) {
+                        EselLog.LogI(TAG, "Permesso " + entry.getKey() + " CONCESSO.");
+                    } else {
+                        EselLog.LogW(TAG, "Permesso " + entry.getKey() + " NEGATO.");
+                        Toast.makeText(this, "Attenzione: senza il permesso " + entry.getKey() + ", l'app potrebbe non funzionare.", Toast.LENGTH_LONG).show();
+                    }
+                }
+            });
+
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -110,24 +163,6 @@ public class MainActivity extends AppCompatActivity {
             return true;
         }
         return super.onOptionsItemSelected(item);
-    }
-
-    private boolean isNotificationPermissionGranted() {
-        return ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
-    }
-
-    private final ActivityResultLauncher<String> requestPermissionLauncher =
-            registerForActivityResult(new ActivityResultContracts.RequestPermission(), isGranted -> {
-                if (isGranted) { EselLog.LogI(TAG, "Permesso Notifiche CONCESSO."); }
-                else {
-                    EselLog.LogW(TAG, "Permesso Notifiche NEGATO.");
-                    Toast.makeText(this, "Attenzione: senza il permesso notifiche, l'app potrebbe non funzionare correttamente.", Toast.LENGTH_LONG).show();
-                }
-            });
-
-    private void requestNotificationPermission() {
-        EselLog.LogI(TAG, "Richiesta permesso POST_NOTIFICATIONS...");
-        requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS);
     }
 
     private boolean isNotificationListenerEnabled() {

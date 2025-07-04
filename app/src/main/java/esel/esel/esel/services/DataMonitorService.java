@@ -1,4 +1,4 @@
-// ---------- CODICE GIÀ CORRETTO E VERIFICATO ----------
+// ---------- CODICE CON FIX PER IL BUG DI ELABORAZIONE DATI ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -13,6 +13,8 @@ import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
+
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
@@ -24,6 +26,7 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import esel.esel.esel.R;
 import esel.esel.esel.datareader.SGV;
@@ -52,18 +55,23 @@ public class DataMonitorService extends Service {
 
     private ExecutorService executor;
     private BroadcastReceiver sgvDataReceiver;
+    private PowerManager.WakeLock wakeLock;
 
     @Override
     public void onCreate() {
         super.onCreate();
         EselLog.LogI(TAG, "DataMonitorService onCreate.");
         executor = Executors.newSingleThreadExecutor();
+
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "EselReader::DataProcessingWakeLock");
+
         createNotificationChannel();
         setupSgvDataReceiver();
         SP.putBoolean("service_should_be_running", true);
         Notification notification = buildNotification("Servizio in attesa di dati...");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC | ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }
@@ -107,6 +115,10 @@ public class DataMonitorService extends Service {
     }
 
     private void processSgv(SGV sgv, boolean isManualOverride) {
+        if (wakeLock != null && !wakeLock.isHeld()) {
+            wakeLock.acquire(20 * 1000L);
+            EselLog.LogW(TAG, "WakeLock acquisito per l'elaborazione dei dati.");
+        }
         try {
             final long now = System.currentTimeMillis();
             if (!isManualOverride) {
@@ -114,7 +126,10 @@ public class DataMonitorService extends Service {
                 final long timeSinceLastProcess = now - lastSentTime;
 
                 if (lastSentTime > 0 && timeSinceLastProcess > LONG_PAUSE_THRESHOLD_MS) {
-                    EselLog.LogW(TAG, "[FILTRO] SCARTATO SGV(" + sgv.value + ") perché è il primo dopo una lunga pausa di " + (timeSinceLastProcess / 60000) + " min. Resetto il timer.");
+                    EselLog.LogW(TAG, "[FILTRO] SCARTATO SGV(" + sgv.value + ") perché è il primo dopo una lunga pausa di " + (timeSinceLastProcess / 60000) + " min. Resetto il timer e lo stato.");
+                    SP.putLong(KEY_LAST_SGV_TIMESTAMP, 0L);
+                    SP.putInt(KEY_LAST_SGV_RAW_VALUE, -1);
+                    SP.putInt(KEY_LAST_SGV_FINAL_VALUE, -1);
                     SP.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, now);
                     return;
                 }
@@ -133,23 +148,26 @@ public class DataMonitorService extends Service {
             int lastSentFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
             long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
             boolean hasTimeGap = (lastSgvTimestamp > 0) && (sgv.timestamp - lastSgvTimestamp) > 12 * 60 * 1000L;
-            int finalValue = sgv.raw;
+
+            // **FIX BUG "DATO INDIETRO"**
+            // Lo smoothing viene applicato a una copia del dato, solo per calcolare lo slope.
+            // Il valore originale (sgv) non viene mai modificato.
+            SGV sgvForSlope = new SGV(sgv.raw, sgv.timestamp, 0);
             boolean smoothing_enabled = SP.getBoolean("smooth_data", false);
             if (smoothing_enabled && lastSentRawValue != -1 && !hasTimeGap) {
-                sgv.smooth(lastSentRawValue);
-                finalValue = sgv.value;
+                sgvForSlope.smooth(lastSentRawValue);
             }
 
             double slopeByMinute = 0d;
             if (lastSgvTimestamp > 0 && !hasTimeGap) {
                 long timeDiff = sgv.timestamp - lastSgvTimestamp;
                 if (timeDiff > 0) {
-                    slopeByMinute = (double) (finalValue - lastSentFinalValue) * 60000.0d / (double) timeDiff;
+                    slopeByMinute = (double) (sgvForSlope.value - lastSentFinalValue) * 60000.0d / (double) timeDiff;
                     sgv.setDirection(slopeByMinute);
                 }
             }
 
-            sgv.value = finalValue;
+            sgv.value = sgv.raw;
             DateFormat df = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
             EselLog.LogI(TAG, "Pronto per invio: Valore=" + sgv.value + " (Grezzo=" + sgv.raw + ") | Direzione=" + sgv.direction);
 
@@ -159,7 +177,7 @@ public class DataMonitorService extends Service {
             SP.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, System.currentTimeMillis());
             SP.putLong(KEY_LAST_SGV_TIMESTAMP, sgv.timestamp);
             SP.putInt(KEY_LAST_SGV_RAW_VALUE, sgv.raw);
-            SP.putInt(KEY_LAST_SGV_FINAL_VALUE, finalValue);
+            SP.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.raw);
 
             String trendArrow = getTrendArrow(sgv.direction);
             String notificationText = "Ultimo invio: " + sgv.value + " " + trendArrow + " alle " + df.format(new Date(sgv.timestamp));
@@ -167,6 +185,11 @@ public class DataMonitorService extends Service {
 
         } catch (Throwable t) {
             android.util.Log.e(TAG, "Errore critico durante il processamento del SGV:", t);
+        } finally {
+            if (wakeLock != null && wakeLock.isHeld()) {
+                wakeLock.release();
+                EselLog.LogW(TAG, "WakeLock rilasciato.");
+            }
         }
     }
 

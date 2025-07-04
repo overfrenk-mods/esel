@@ -28,7 +28,7 @@ public class AppLogger {
 
     private static final String TAG = "AppLogger";
     private static final String LOG_FILE_NAME = "app_log.txt";
-    private static final int MAX_LOG_LINES = 8000; // Limite massimo di righe nel log
+    private static final int MAX_LOG_LINES = 32000; // Limite massimo di righe nel log
 
     private static volatile AppLogger INSTANCE;
     private final File logFile;
