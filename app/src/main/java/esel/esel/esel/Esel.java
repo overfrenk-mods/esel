@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE SEMPLIFICATO PER minSdk 33 ----------
+// ---------- CODICE FINALE CON CRASHCATCHER INSTALLATO ----------
 package esel.esel.esel;
 
 import android.app.Application;
@@ -26,6 +26,9 @@ public class Esel extends Application {
     public void onCreate() {
         super.onCreate();
 
+        // --- FIX 3: Installiamo la nostra "scatola nera" per i crash ---
+        CrashCatcher.install(this);
+
         EselLog.init(this);
 
         sInstance = this;
@@ -40,8 +43,6 @@ public class Esel extends Application {
         }
     }
 
-    // --- METODO SEMPLIFICATO ---
-    // Il controllo if(Build.VERSION...) è stato rimosso perché la minSdk è 33 (Android 13)
     private void createNotificationChannels() {
         // Canale per gli avvisi critici del Watchdog (alta priorità)
         NotificationChannel alertChannel = new NotificationChannel(

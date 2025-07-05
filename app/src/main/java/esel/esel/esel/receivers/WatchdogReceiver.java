@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE CON CONTROLLO ATTIVO DEL PERMESSO NOTIFICHE ----------
+// ---------- CODICE CON FIX ANTI-ANR (goAsync) ----------
 package esel.esel.esel.receivers;
 
 import android.Manifest;
@@ -31,33 +31,44 @@ public class WatchdogReceiver extends BroadcastReceiver {
     private static final String TAG = "WatchdogReceiver";
     private static final long WATCHDOG_INTERVAL_MS = 15 * 60 * 1000L;
 
-    // Costanti per la notifica di Riavvio Frequente
     private static final int RESTART_THRESHOLD = 3;
     private static final long WINDOW_HOUR_MS = 60 * 60 * 1000L;
     private static final String RESTART_ALERT_CHANNEL_ID = "EselRestartAlertChannel";
     private static final int RESTART_ALERT_NOTIFICATION_ID = 102;
 
-    // --- NUOVE COSTANTI PER LA NOTIFICA DI PERMESSO MANCANTE ---
     private static final String LISTENER_ALERT_CHANNEL_ID = "EselListenerAlertChannel";
     private static final int LISTENER_ALERT_NOTIFICATION_ID = 103;
     private static final int SHOW_APP_REQUEST_CODE = 902;
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        EselLog.LogW(TAG, "Allarme Watchdog 'L'Origlione' scattato! Eseguo controllo...");
+        EselLog.LogW(TAG, "Allarme Watchdog 'L'Origlione' scattato!");
 
-        scheduleNextWatchdog(context);
+        // --- FIX ANTI-ANR: Usiamo goAsync per spostare il lavoro in background ---
+        final PendingResult pendingResult = goAsync();
 
-        if (!SP.getBoolean("enable_service", true)) {
-            EselLog.LogI(TAG, "Il servizio è stato fermato volontariamente dall'utente. Il watchdog non interviene.");
-            return;
-        }
+        new Thread(() -> {
+            try {
+                // Tutta la logica viene eseguita in un thread separato
+                scheduleNextWatchdog(context);
 
-        // --- NUOVO CONTROLLO: Verifichiamo se il permesso di notifica è attivo ---
-        checkNotificationListenerPermission(context);
+                if (!SP.getBoolean("enable_service", true)) {
+                    EselLog.LogI(TAG, "Il servizio è stato fermato volontariamente dall'utente. Il watchdog non interviene.");
+                    return; // Esce dal thread, il finish() verrà chiamato nel finally
+                }
 
-        // Logica per il riavvio del servizio
-        checkAndRestartService(context);
+                checkNotificationListenerPermission(context);
+                checkAndRestartService(context);
+
+            } finally {
+                // Diciamo al sistema che abbiamo finito il nostro lavoro in background.
+                // Questo è FONDAMENTALE.
+                if (pendingResult != null) {
+                    pendingResult.finish();
+                }
+                EselLog.LogI(TAG, "Watchdog ha completato il lavoro in background.");
+            }
+        }).start();
     }
 
     private void checkAndRestartService(Context context) {
@@ -94,7 +105,6 @@ public class WatchdogReceiver extends BroadcastReceiver {
         }
     }
 
-    // --- NUOVA FUNZIONE ---
     private void checkNotificationListenerPermission(Context context) {
         Set<String> enabledListeners = NotificationManagerCompat.getEnabledListenerPackages(context);
         if (enabledListeners.contains(context.getPackageName())) {
@@ -172,7 +182,6 @@ public class WatchdogReceiver extends BroadcastReceiver {
         }
     }
 
-    // --- NUOVA FUNZIONE ---
     private void showListenerPermissionWarningNotification(Context context) {
         NotificationChannel channel = new NotificationChannel(LISTENER_ALERT_CHANNEL_ID, "Avvisi Permessi ESEL", NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("Notifiche per permessi mancanti o disattivati");
@@ -189,7 +198,7 @@ public class WatchdogReceiver extends BroadcastReceiver {
                 .setStyle(new NotificationCompat.BigTextStyle()
                         .bigText("ESEL non può leggere i dati glicemici perché il permesso di accesso alle notifiche è stato disattivato. Clicca qui per andare alle impostazioni e riattivarlo."))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setOngoing(true) // Rendiamo la notifica persistente finché il problema non è risolto
+                .setOngoing(true)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(false);
 

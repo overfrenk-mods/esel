@@ -1,4 +1,4 @@
-// ---------- CODICE CON LOGICA DI AVVIO ROBUSTA ----------
+// ---------- CODICE FINALE CON CHECKLIST PERMESSI COMPLETA ----------
 package esel.esel.esel;
 
 import android.content.Context;
@@ -7,6 +7,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.text.TextUtils;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -17,10 +18,12 @@ import android.widget.Toast;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.NotificationManagerCompat;
+
 import java.util.Locale;
 import java.util.Random;
 import java.util.Set;
 
+import esel.esel.esel.services.StabilityService;
 import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
 
@@ -32,7 +35,6 @@ public class ActivationActivity extends AppCompatActivity {
     private TextView textViewGeneratedCode;
     private EditText editTextUnlockCode;
     private Button buttonUnlock;
-    private View activationGroup; // Un gruppo per nascondere tutta la parte di attivazione
 
     // Viste per i permessi
     private LinearLayout permissionsLayout;
@@ -40,23 +42,20 @@ public class ActivationActivity extends AppCompatActivity {
     private Button buttonEnableNotifications;
     private ImageView iconBatteryPermission;
     private Button buttonDisableBattery;
+    private ImageView iconAccessibilityPermission; // NUOVO
+    private Button buttonEnableAccessibility;   // NUOVO
     private Button buttonStartApp;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // 1. Imposta SEMPRE la UI come prima cosa. Questo previene crash se la logica sotto fallisce.
         setContentView(R.layout.activity_activation);
 
-        // 2. Inizializza SEMPRE tutte le viste.
         initializeViews();
 
-        // 3. ORA controlla lo stato dell'app.
         if (SP.getBoolean("is_app_unlocked", false)) {
-            // L'app è già stata sbloccata, mostra direttamente la checklist dei permessi.
             showPermissionsChecklist();
         } else {
-            // L'app non è sbloccata, avvia il flusso di generazione del codice.
             setupActivationFlow();
         }
     }
@@ -64,13 +63,9 @@ public class ActivationActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // Controlla lo stato ogni volta che l'activity torna in primo piano.
-
         if (SP.getBoolean("is_app_unlocked", false)) {
-            // Se l'app è sbloccata, aggiorniamo la checklist dei permessi
             updatePermissionsChecklist();
 
-            // Se TUTTI i permessi sono OK, allora possiamo procedere alla MainActivity.
             if (areAllPermissionsGranted()) {
                 proceedToMainApp();
             }
@@ -82,9 +77,6 @@ public class ActivationActivity extends AppCompatActivity {
         textViewGeneratedCode = findViewById(R.id.textViewGeneratedCode);
         editTextUnlockCode = findViewById(R.id.editTextUnlockCode);
         buttonUnlock = findViewById(R.id.buttonUnlock);
-        // Ho raggruppato le viste di attivazione per gestirle più facilmente,
-        // ma se non hai un 'activationGroup' nel layout, questo non è un problema.
-        // La logica funzionerà comunque disabilitando i singoli elementi.
 
         // Viste permessi
         permissionsLayout = findViewById(R.id.permissionsLayout);
@@ -93,10 +85,13 @@ public class ActivationActivity extends AppCompatActivity {
         iconBatteryPermission = findViewById(R.id.iconBatteryPermission);
         buttonDisableBattery = findViewById(R.id.buttonDisableBattery);
         buttonStartApp = findViewById(R.id.buttonStartApp);
+
+        // NUOVE VISTE
+        iconAccessibilityPermission = findViewById(R.id.iconAccessibilityPermission);
+        buttonEnableAccessibility = findViewById(R.id.buttonEnableAccessibility);
     }
 
     private void setupActivationFlow() {
-        // Assicurati che la parte dei permessi sia nascosta
         permissionsLayout.setVisibility(View.GONE);
         buttonStartApp.setVisibility(View.GONE);
 
@@ -124,7 +119,7 @@ public class ActivationActivity extends AppCompatActivity {
     }
 
     private void showPermissionsChecklist() {
-        // Nascondi o disabilita la parte di attivazione
+        // Nascondi la parte di attivazione
         textViewGeneratedCode.setVisibility(View.GONE);
         findViewById(R.id.textViewActivationInstructions).setVisibility(View.GONE);
         editTextUnlockCode.setVisibility(View.GONE);
@@ -145,19 +140,30 @@ public class ActivationActivity extends AppCompatActivity {
             startActivity(intent);
         });
 
+        // NUOVO LISTENER
+        buttonEnableAccessibility.setOnClickListener(v -> {
+            Toast.makeText(this, "Trova e attiva 'Eversense-Reader' nella lista", Toast.LENGTH_LONG).show();
+            Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+            startActivity(intent);
+        });
+
         buttonStartApp.setOnClickListener(v -> proceedToMainApp());
     }
 
     private void updatePermissionsChecklist() {
-        // Aggiorna lo stato della checklist e abilita/disabilita i pulsanti
+        // Controlla e aggiorna lo stato per ogni permesso
         boolean notificationOK = isNotificationListenerEnabled();
         updateChecklistItemUI(iconNotificationPermission, buttonEnableNotifications, notificationOK, "Abilita");
 
         boolean batteryOK = isBatteryOptimizationIgnored();
         updateChecklistItemUI(iconBatteryPermission, buttonDisableBattery, batteryOK, "Disabilita");
 
-        // Controlla se il pulsante finale "Inizia" può essere abilitato
-        if (notificationOK && batteryOK) {
+        // NUOVO CONTROLLO
+        boolean accessibilityOK = isAccessibilityServiceEnabled();
+        updateChecklistItemUI(iconAccessibilityPermission, buttonEnableAccessibility, accessibilityOK, "Attiva");
+
+        // Abilita il pulsante finale solo se TUTTI i permessi sono OK
+        if (areAllPermissionsGranted()) {
             buttonStartApp.setEnabled(true);
             buttonStartApp.setText("Inizia a usare l'app");
         } else {
@@ -178,8 +184,9 @@ public class ActivationActivity extends AppCompatActivity {
         }
     }
 
+    // MODIFICATO per includere il nuovo controllo
     private boolean areAllPermissionsGranted() {
-        return isNotificationListenerEnabled() && isBatteryOptimizationIgnored();
+        return isNotificationListenerEnabled() && isBatteryOptimizationIgnored() && isAccessibilityServiceEnabled();
     }
 
     private boolean isNotificationListenerEnabled() {
@@ -190,6 +197,36 @@ public class ActivationActivity extends AppCompatActivity {
     private boolean isBatteryOptimizationIgnored() {
         PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
         return pm.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    // NUOVO METODO per controllare se il servizio di accessibilità è attivo
+    private boolean isAccessibilityServiceEnabled() {
+        int accessibilityEnabled = 0;
+        final String service = getPackageName() + "/" + StabilityService.class.getCanonicalName();
+        try {
+            accessibilityEnabled = Settings.Secure.getInt(
+                    getApplicationContext().getContentResolver(),
+                    android.provider.Settings.Secure.ACCESSIBILITY_ENABLED);
+        } catch (Settings.SettingNotFoundException e) {
+            EselLog.LogE(TAG, "Errore nel leggere le impostazioni di accessibilità: " + e.getMessage());
+        }
+        TextUtils.SimpleStringSplitter colonSplitter = new TextUtils.SimpleStringSplitter(':');
+
+        if (accessibilityEnabled == 1) {
+            String settingValue = Settings.Secure.getString(
+                    getApplicationContext().getContentResolver(),
+                    Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+            if (settingValue != null) {
+                colonSplitter.setString(settingValue);
+                while (colonSplitter.hasNext()) {
+                    String accessibilityService = colonSplitter.next();
+                    if (accessibilityService.equalsIgnoreCase(service)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private boolean isUnlockCodeCorrect(String generatedCode, String userInput) {

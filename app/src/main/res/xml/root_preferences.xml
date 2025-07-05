@@ -48,6 +48,19 @@
             app:icon="@android:drawable/ic_lock_idle_alarm" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="Grafico">
+
+        <ListPreference
+            app:key="graph_duration_hours"
+            app:title="Durata Grafico"
+            app:summary="%s"
+            app:icon="@drawable/ic_graph"
+            app:defaultValue="3"
+            app:entries="@array/graph_duration_entries"
+            app:entryValues="@array/graph_duration_values" />
+
+    </PreferenceCategory>
+
     <PreferenceCategory app:title="Invio Dati">
 
         <SwitchPreferenceCompat

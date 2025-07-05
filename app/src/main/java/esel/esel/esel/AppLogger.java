@@ -1,4 +1,4 @@
-// ---------------- CODICE COMPLETO E AGGIORNATO PER AppLogger.java ----------------
+// ---------------- CODICE DEFINITIVO CON SCRITTURA LOG A PROVA DI CRASH ----------------
 package esel.esel.esel;
 
 import android.content.Context;
@@ -6,11 +6,14 @@ import android.util.Log;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -21,35 +24,28 @@ import java.util.concurrent.Executors;
 
 /**
  * Singleton per la gestione centralizzata dei log dell'applicazione.
- * Scrive i log su un file interno in modo efficiente e asincrono.
+ * Scrive i log su un file interno in modo efficiente, asincrono e a prova di crash.
  * Offre LiveData per notificare l'interfaccia utente dei cambiamenti in modo sicuro.
  */
 public class AppLogger {
 
     private static final String TAG = "AppLogger";
     private static final String LOG_FILE_NAME = "app_log.txt";
-    private static final int MAX_LOG_LINES = 32000; // Limite massimo di righe nel log
+    private static final int MAX_LOG_LINES = 32000;
 
     private static volatile AppLogger INSTANCE;
     private final File logFile;
-    private final ExecutorService executor; // Per eseguire operazioni su file in un thread separato
+    private final ExecutorService executor;
 
-    // LiveData per notificare l'UI in modo lifecycle-aware (senza crash)
     private final MutableLiveData<List<String>> logsLiveData = new MutableLiveData<>();
     private final List<String> logLines = new ArrayList<>();
 
-    // Costruttore privato per il pattern Singleton
     private AppLogger(Context context) {
-        // Usa la memoria interna dell'app, che non richiede permessi speciali
         logFile = new File(context.getFilesDir(), LOG_FILE_NAME);
-        // Un solo thread per eseguire le operazioni in coda, garantendo l'ordine di scrittura
         executor = Executors.newSingleThreadExecutor();
         loadLogsFromFile();
     }
 
-    /**
-     * Ottiene l'istanza unica del logger.
-     */
     public static AppLogger getInstance(Context context) {
         if (INSTANCE == null) {
             synchronized (AppLogger.class) {
@@ -63,106 +59,108 @@ public class AppLogger {
 
     /**
      * Aggiunge una nuova riga di log.
-     * Questo metodo può essere chiamato da qualsiasi punto dell'app (Activity, Service, etc.).
      */
     public void add(String type, String tag, String value) {
         executor.execute(() -> {
             try {
-                // Formatta il messaggio di log
                 LocalDateTime currentTime = LocalDateTime.now();
                 DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
                 String formattedLine = String.format("%s: [%s] %s: %s", currentTime.format(format), type, tag, value);
 
-                // Aggiunge in cima alla lista in memoria
+                // Aggiunge in memoria
                 synchronized (logLines) {
                     logLines.add(0, formattedLine);
-                    // Applica il troncamento se si supera il limite
                     if (logLines.size() > MAX_LOG_LINES) {
-                        logLines.subList(MAX_LOG_LINES, logLines.size()).clear();
+                        logLines.remove(logLines.size() - 1);
                     }
                 }
 
-                // Notifica gli observer (come LogActivity) con la lista aggiornata
+                // Notifica l'UI
                 logsLiveData.postValue(new ArrayList<>(logLines));
 
-                // Scrive l'intera lista aggiornata su file.
-                writeLogsToFile();
+                // Scrive solo la nuova riga su file in modo sicuro
+                appendLineToFile(formattedLine);
 
             } catch (Exception e) {
-                Log.e(TAG, "Errore durante la scrittura del log", e);
+                Log.e(TAG, "Errore durante l'aggiunta del log", e);
             }
         });
     }
 
-    /**
-     * Fornisce l'accesso ai log come LiveData per essere osservato dall'UI.
-     */
     public LiveData<List<String>> getLogs() {
         return logsLiveData;
     }
 
-    /**
-     * Carica i log dal file di testo all'avvio.
-     */
     private void loadLogsFromFile() {
         executor.execute(() -> {
             if (!logFile.exists()) {
                 logsLiveData.postValue(Collections.emptyList());
                 return;
             }
+            // Leggiamo tutte le righe dal file
+            List<String> tempLines = new ArrayList<>();
             try (BufferedReader reader = new BufferedReader(new FileReader(logFile))) {
-                synchronized (logLines) {
-                    logLines.clear();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        logLines.add(line);
-                    }
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    tempLines.add(line);
                 }
-                // Notifica l'UI dopo aver caricato i log
-                logsLiveData.postValue(new ArrayList<>(logLines));
             } catch (IOException e) {
                 Log.e(TAG, "Errore durante la lettura del file di log", e);
             }
+
+            // Se il file è più grande del nostro limite, lo tronchiamo
+            if (tempLines.size() > MAX_LOG_LINES) {
+                int excess = tempLines.size() - MAX_LOG_LINES;
+                tempLines = tempLines.subList(excess, tempLines.size()); // Mantiene solo le righe più recenti
+                // Riscriviamo il file troncato per tenerlo pulito
+                writeLogsToFile(tempLines);
+            }
+
+            // Aggiorniamo la lista in memoria e l'UI
+            synchronized (logLines) {
+                logLines.clear();
+                logLines.addAll(tempLines);
+                Collections.reverse(logLines); // Assumendo che le più recenti siano in fondo al file
+            }
+            logsLiveData.postValue(new ArrayList<>(logLines));
         });
     }
 
     /**
-     * Scrive la lista corrente di log nel file, sovrascrivendolo.
+     * Scrive l'intera lista di log nel file, sovrascrivendolo.
+     * Usato solo per operazioni di pulizia/troncamento all'avvio.
      */
-    private void writeLogsToFile() {
-        try (FileOutputStream fos = new FileOutputStream(logFile, false); // false per sovrascrivere
-             OutputStreamWriter writer = new OutputStreamWriter(fos)) {
-
-            synchronized (logLines) {
-                for (String line : logLines) {
-                    writer.write(line + "\n");
-                }
+    private void writeLogsToFile(List<String> linesToWrite) {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(logFile, false))) { // false per sovrascrivere
+            for (String line : linesToWrite) {
+                writer.println(line);
             }
         } catch (IOException e) {
-            Log.e(TAG, "Errore durante la scrittura del file di log", e);
+            Log.e(TAG, "Errore durante la riscrittura del file di log", e);
         }
     }
 
-    // --- NUOVO METODO AGGIUNTO ---
     /**
-     * Pulisce tutti i log, sia in memoria che su file.
-     * Viene eseguito in un thread separato per non bloccare l'interfaccia utente.
+     * Aggiunge una singola riga in fondo al file di log in modo sicuro (append).
      */
+    private void appendLineToFile(String line) {
+        // Usiamo FileWriter in modalità append (true) e un PrintWriter con auto-flush
+        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(logFile, true)))) {
+            writer.println(line);
+        } catch (IOException e) {
+            Log.e(TAG, "Errore durante l'append del log su file", e);
+        }
+    }
+
     public void clearLogs() {
         executor.execute(() -> {
-            // Pulisce la lista in memoria
             synchronized (logLines) {
                 logLines.clear();
             }
-
-            // Cancella il file fisico
             if (logFile.exists()) {
                 logFile.delete();
             }
-
-            // Notifica l'UI che la lista è ora vuota
             logsLiveData.postValue(new ArrayList<>());
-
             Log.w(TAG, "Log pulito dall'utente.");
         });
     }

@@ -1,4 +1,4 @@
-// ---------- CODICE COMPLETO CON TIPO DI SERVIZIO CORRETTO ----------
+// ---------- CODICE CON LETTURA PREFERENZE ROBUSTA ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -10,6 +10,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences; // NUOVO IMPORT
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
@@ -19,6 +20,7 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+import androidx.preference.PreferenceManager; // NUOVO IMPORT
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -43,6 +45,7 @@ import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
 
 public class DataMonitorService extends Service {
+    // ... (tutte le costanti e le variabili membro rimangono invariate) ...
     private static final String TAG = "DataMonitorService";
     public static final String CHANNEL_ID = "EselMonitorChannel";
     public static final int NOTIFICATION_ID = 101;
@@ -55,7 +58,6 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_RAW_VALUE = "status_last_sgv_raw_value";
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
-    private static final int HISTORY_MAX_SIZE = 36;
 
     private static final long COOLDOWN_PERIOD_MS = (5 * 60 * 1000L) - 15000L;
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
@@ -75,6 +77,7 @@ public class DataMonitorService extends Service {
         }
     }
 
+    // ... (onCreate, onStartCommand, setupSgvDataReceiver, processSgv rimangono invariati) ...
     @Override
     public void onCreate() {
         super.onCreate();
@@ -87,10 +90,12 @@ public class DataMonitorService extends Service {
 
         createNotificationChannel();
         setupSgvDataReceiver();
+
+        WatchdogReceiver.scheduleNextWatchdog(this);
+
         SP.putBoolean("service_should_be_running", true);
         Notification notification = buildNotification("Servizio in attesa di dati...");
 
-        // --- MODIFICA CHE RISOLVE IL CRASH ---
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
         } else {
@@ -219,6 +224,14 @@ public class DataMonitorService extends Service {
 
     private void updateSgvHistory(SGV newSgv) {
         try {
+            // --- MODIFICA: Usiamo il metodo standard di Android per leggere le preferenze ---
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+            String durationHoursStr = prefs.getString("graph_duration_hours", "3");
+
+            int durationHours = Integer.parseInt(durationHoursStr);
+            int historyMaxSize = durationHours * 12;
+
+
             String historyJson = SP.getString(KEY_SGV_HISTORY_JSON, "[]");
             Type listType = new TypeToken<ArrayList<SgvHistoryPoint>>() {}.getType();
             List<SgvHistoryPoint> history = gson.fromJson(historyJson, listType);
@@ -228,19 +241,21 @@ public class DataMonitorService extends Service {
 
             history.add(new SgvHistoryPoint(newSgv.timestamp, newSgv.value));
 
-            while (history.size() > HISTORY_MAX_SIZE) {
+            while (history.size() > historyMaxSize) {
                 history.remove(0);
             }
 
             String newHistoryJson = gson.toJson(history);
+            // Usiamo ancora la tua classe SP per scrivere, ma potremmo standardizzare anche questa in futuro
             SP.putString(KEY_SGV_HISTORY_JSON, newHistoryJson);
-            EselLog.LogI(TAG, "Cronologia SGV aggiornata. Punti attuali: " + history.size());
+            EselLog.LogI(TAG, "Cronologia SGV aggiornata. Punti attuali: " + history.size() + "/" + historyMaxSize);
 
         } catch (Exception e) {
             android.util.Log.e(TAG, "Errore durante l'aggiornamento della cronologia SGV", e);
         }
     }
 
+    // ... (tutti gli altri metodi, da stopSelfService in poi, rimangono invariati) ...
     private void stopSelfService() {
         SP.putBoolean("service_should_be_running", false);
         SP.putBoolean("enable_service", false);

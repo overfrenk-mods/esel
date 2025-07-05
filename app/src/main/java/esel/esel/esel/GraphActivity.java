@@ -1,12 +1,14 @@
-// File: esel/esel/esel/GraphActivity.java
+// ---------- CODICE FINALE CON LETTURA PREFERENZE ROBUSTA ----------
 package esel.esel.esel;
 
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.ContextCompat;
+import androidx.preference.PreferenceManager;
 
 import com.github.mikephil.charting.charts.LineChart;
 import com.github.mikephil.charting.components.XAxis;
@@ -38,11 +40,20 @@ public class GraphActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_graph);
 
-        // Imposta la toolbar con titolo e pulsante "indietro"
         Toolbar toolbar = findViewById(R.id.toolbar_graph);
         setSupportActionBar(toolbar);
+
+        // --- MODIFICA: Leggiamo le preferenze con il metodo standard ---
         if (getSupportActionBar() != null) {
-            getSupportActionBar().setTitle("Grafico Ultime 3 Ore");
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+            String durationHours = prefs.getString("graph_duration_hours", "3");
+            String title;
+            if ("1".equals(durationHours)) {
+                title = "Grafico Ultima Ora";
+            } else {
+                title = "Grafico Ultime " + durationHours + " Ore";
+            }
+            getSupportActionBar().setTitle(title);
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
         }
 
@@ -51,14 +62,12 @@ public class GraphActivity extends AppCompatActivity {
         loadAndDisplayData();
     }
 
-    // Gestisce il click sulla freccia "indietro" nella toolbar
     @Override
     public boolean onSupportNavigateUp() {
         onBackPressed();
         return true;
     }
 
-    // Prepara l'aspetto del grafico
     private void setupChart() {
         lineChart.getDescription().setEnabled(false);
         lineChart.setDrawGridBackground(false);
@@ -67,13 +76,11 @@ public class GraphActivity extends AppCompatActivity {
         lineChart.getLegend().setTextColor(Color.WHITE);
 
 
-        // Configurazione Asse X (Tempo)
         XAxis xAxis = lineChart.getXAxis();
         xAxis.setPosition(XAxis.XAxisPosition.BOTTOM);
         xAxis.setDrawGridLines(true);
         xAxis.setTextColor(Color.WHITE);
         xAxis.setGridColor(Color.GRAY);
-        // Formatta i timestamp sull'asse in ore e minuti (es. "15:30")
         xAxis.setValueFormatter(new ValueFormatter() {
             private final SimpleDateFormat mFormat = new SimpleDateFormat("HH:mm", Locale.ITALY);
             @Override
@@ -82,19 +89,19 @@ public class GraphActivity extends AppCompatActivity {
             }
         });
 
-        // Configurazione Asse Y Sinistro (Valori BG)
         YAxis leftAxis = lineChart.getAxisLeft();
         leftAxis.setTextColor(Color.WHITE);
         leftAxis.setGridColor(Color.GRAY);
-        leftAxis.setAxisMinimum(40f); // Imposta un minimo ragionevole
+        leftAxis.setAxisMinimum(40f);
 
-        // Disabilita Asse Y Destro
         lineChart.getAxisRight().setEnabled(false);
     }
 
     private void loadAndDisplayData() {
-        // 1. Leggi il JSON della cronologia dalle SharedPreferences
-        String historyJson = SP.getString(DataMonitorService.KEY_SGV_HISTORY_JSON, "[]");
+        // --- MODIFICA: Usiamo il metodo standard anche qui per coerenza ---
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        String historyJson = prefs.getString(DataMonitorService.KEY_SGV_HISTORY_JSON, "[]");
+
         Type listType = new TypeToken<ArrayList<DataMonitorService.SgvHistoryPoint>>() {}.getType();
         List<DataMonitorService.SgvHistoryPoint> history = gson.fromJson(historyJson, listType);
 
@@ -104,13 +111,11 @@ public class GraphActivity extends AppCompatActivity {
             return;
         }
 
-        // 2. Converti i nostri dati nel formato richiesto dalla libreria (Entry)
         ArrayList<Entry> chartEntries = new ArrayList<>();
         for (DataMonitorService.SgvHistoryPoint point : history) {
             chartEntries.add(new Entry(point.timestamp, point.value));
         }
 
-        // 3. Crea il set di dati e configuralo esteticamente
         LineDataSet dataSet = new LineDataSet(chartEntries, "Glicemia (mg/dL)");
         dataSet.setColor(ContextCompat.getColor(this, R.color.green_primary));
         dataSet.setCircleColor(Color.WHITE);
@@ -122,11 +127,10 @@ public class GraphActivity extends AppCompatActivity {
         dataSet.setValueTextColor(Color.WHITE);
         dataSet.setDrawFilled(true);
         dataSet.setFillDrawable(ContextCompat.getDrawable(this, R.drawable.graph_fill));
-        dataSet.setMode(LineDataSet.Mode.CUBIC_BEZIER); // Linee smussate
+        dataSet.setMode(LineDataSet.Mode.CUBIC_BEZIER);
 
-        // 4. Inserisci i dati nel grafico e aggiornalo
         LineData lineData = new LineData(dataSet);
         lineChart.setData(lineData);
-        lineChart.animateX(1000); // Aggiunge una piccola animazione
+        lineChart.animateX(1000);
     }
 }
