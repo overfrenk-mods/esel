@@ -41,6 +41,11 @@
             app:summary="Interruttore principale per avviare e fermare il servizio di monitoraggio in background."
             app:defaultValue="true" />
 
+        <Preference
+            app:key="battery_optimization_button"
+            app:title="Impostazioni Batteria"
+            app:summary="Clicca per disabilitare le ottimizzazioni della batteria e migliorare la stabilità del servizio."
+            app:icon="@android:drawable/ic_lock_idle_alarm" />
     </PreferenceCategory>
 
     <PreferenceCategory app:title="Invio Dati">

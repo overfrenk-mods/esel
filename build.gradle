@@ -1,8 +1,8 @@
-// Top-level build file where you can add configuration options common to all sub-projects/modules.
+// File: build.gradle (a livello di progetto)
+// ---------- CODICE MODIFICATO E OTTIMIZZATO ----------
 
 buildscript {
     repositories {
-        jcenter()
         google()
         mavenCentral()
     }
@@ -16,9 +16,10 @@ buildscript {
 
 allprojects {
     repositories {
-        jcenter()
         google()
         mavenCentral()
+        // --- AGGIUNTO IL REPOSITORY PER MPANDROIDCHART ---
+        maven { url 'https://www.jitpack.io' }
     }
 }
 

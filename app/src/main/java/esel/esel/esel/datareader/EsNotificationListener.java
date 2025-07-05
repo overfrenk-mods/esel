@@ -1,4 +1,4 @@
-// ---------- CODICE DEFINITIVO CON RANGE DI LETTURA UFFICIALE (40-400) ----------
+// ---------- CODICE MODIFICATO SENZA LOGICA DI DEBOUNCE ----------
 package esel.esel.esel.datareader;
 
 import android.app.Notification;
@@ -25,9 +25,10 @@ public class EsNotificationListener extends NotificationListenerService {
     public static final String KEY_LAST_SEEN_NOTIFICATION_TEXT = "last_seen_notification_text";
     public static final String KEY_LAST_SEEN_NOTIFICATION_WHEN = "last_seen_notification_when";
 
-    private static String lastProcessedText = "";
-    private static long lastProcessedTimeMs = 0;
-    private static final long DEBOUNCE_WINDOW_MS = 10000;
+    // --- RIMOSSA LA LOGICA DI DEBOUNCE DA QUESTA CLASSE ---
+    // private static String lastProcessedText = "";
+    // private static long lastProcessedTimeMs = 0;
+    // private static final long DEBOUNCE_WINDOW_MS = 10000;
 
     private static final Pattern VALUE_PATTERN = Pattern.compile("(?<!\\d:)\\b(\\d+([,.]\\d+)?)\\b(?!:\\d)");
 
@@ -47,13 +48,9 @@ public class EsNotificationListener extends NotificationListenerService {
             return;
         }
 
-        long currentTime = System.currentTimeMillis();
-        if (fullText.equals(lastProcessedText) && (currentTime - lastProcessedTimeMs < DEBOUNCE_WINDOW_MS)) {
-            EselLog.LogI(TAG, "Notifica duplicata ignorata (debounce): \"" + fullText + "\"");
-            return;
-        }
-        lastProcessedText = fullText;
-        lastProcessedTimeMs = currentTime;
+        // --- BLOCCO DEBOUNCE RIMOSSO ---
+        // La logica di filtraggio dei duplicati ora è gestita interamente
+        // dal DataMonitorService per evitare conflitti.
 
         SGV sgv = generateSGVFromText(fullText, notification.when);
         if (sgv == null) {
@@ -61,10 +58,11 @@ public class EsNotificationListener extends NotificationListenerService {
             return;
         }
 
+        // Salviamo comunque l'ultima notifica per il sync manuale
         SP.putString(KEY_LAST_SEEN_NOTIFICATION_TEXT, fullText);
         SP.putLong(KEY_LAST_SEEN_NOTIFICATION_WHEN, notification.when);
 
-        EselLog.LogI(TAG, "Notifica valida (" + sgv.value + ") accettata. Invio broadcast locale al servizio.");
+        EselLog.LogI(TAG, "Notifica valida (" + sgv.value + ") catturata. Invio broadcast locale al servizio.");
         Intent serviceIntent = new Intent(ACTION_NEW_SGV_DATA);
         serviceIntent.putExtra(EXTRA_SGV_DATA, sgv);
         LocalBroadcastManager.getInstance(this).sendBroadcast(serviceIntent);
@@ -117,7 +115,6 @@ public class EsNotificationListener extends NotificationListenerService {
             return null;
         }
 
-        // --- FIX: Aggiornato al range ufficiale Eversense (40-400) ---
         if (value >= 40 && value <= 400) {
             return new SGV(value, timestamp, 0);
         } else {

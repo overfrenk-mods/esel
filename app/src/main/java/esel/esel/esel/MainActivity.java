@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE CON AVVIO ROBUSTO DELL'ALLARME ----------
+// ---------- CODICE FINALE E OTTIMIZZATO ----------
 package esel.esel.esel;
 
 import android.Manifest;
@@ -85,24 +85,19 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // **FIX PER IL CRASH AL RIAVVIO**
-        // Avviamo la catena di allarmi con un piccolo ritardo per dare al sistema il tempo di stabilizzarsi.
         handler.postDelayed(() -> {
             EselLog.LogW(TAG, "Nessun allarme Watchdog trovato. AVVIO LA CATENA DI ALLARMI ESATTI con ritardo.");
             WatchdogReceiver.scheduleNextWatchdog(this);
         }, 2000); // Ritardo di 2 secondi
     }
 
+    // --- MODIFICA: Rimossi i permessi non necessari per ESEL ---
     private String[] getRequiredPermissions() {
         List<String> permissions = new ArrayList<>();
-        permissions.add(Manifest.permission.POST_NOTIFICATIONS);
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            permissions.add(Manifest.permission.BLUETOOTH_SCAN);
-            permissions.add(Manifest.permission.BLUETOOTH_CONNECT);
+        // Da Android 13 in su, è necessario per mostrare la notifica del servizio
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS);
         }
-        // Il permesso per la posizione è richiesto per la scansione bluetooth
-        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
         return permissions.toArray(new String[0]);
     }
 
@@ -156,12 +151,21 @@ public class MainActivity extends AppCompatActivity {
         return true;
     }
 
+    // --- MODIFICA: Aggiunto il listener per la nuova icona del grafico ---
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
-        if (item.getItemId() == R.id.action_log) {
+        int itemId = item.getItemId();
+
+        if (itemId == R.id.action_log) {
             startActivity(new Intent(this, LogActivity.class));
             return true;
         }
+
+        if (itemId == R.id.action_graph) {
+            startActivity(new Intent(this, GraphActivity.class));
+            return true;
+        }
+
         return super.onOptionsItemSelected(item);
     }
 

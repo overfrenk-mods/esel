@@ -1,4 +1,4 @@
-// ---------- CODICE CON FIX PER IL BUG DI ELABORAZIONE DATI ----------
+// ---------- CODICE COMPLETO CON TIPO DI SERVIZIO CORRETTO ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -20,14 +20,19 @@ import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+import java.lang.reflect.Type;
+import java.util.ArrayList;
+import java.util.List;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
+import esel.esel.esel.MainActivity;
 import esel.esel.esel.R;
 import esel.esel.esel.datareader.SGV;
 import esel.esel.esel.datareader.EsNotificationListener;
@@ -49,6 +54,8 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_TIMESTAMP = "status_last_sgv_timestamp";
     public static final String KEY_LAST_SGV_RAW_VALUE = "status_last_sgv_raw_value";
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
+    public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
+    private static final int HISTORY_MAX_SIZE = 36;
 
     private static final long COOLDOWN_PERIOD_MS = (5 * 60 * 1000L) - 15000L;
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
@@ -56,12 +63,24 @@ public class DataMonitorService extends Service {
     private ExecutorService executor;
     private BroadcastReceiver sgvDataReceiver;
     private PowerManager.WakeLock wakeLock;
+    private Gson gson;
+
+    public static class SgvHistoryPoint {
+        public long timestamp;
+        public int value;
+
+        public SgvHistoryPoint(long timestamp, int value) {
+            this.timestamp = timestamp;
+            this.value = value;
+        }
+    }
 
     @Override
     public void onCreate() {
         super.onCreate();
         EselLog.LogI(TAG, "DataMonitorService onCreate.");
         executor = Executors.newSingleThreadExecutor();
+        gson = new Gson();
 
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "EselReader::DataProcessingWakeLock");
@@ -70,8 +89,10 @@ public class DataMonitorService extends Service {
         setupSgvDataReceiver();
         SP.putBoolean("service_should_be_running", true);
         Notification notification = buildNotification("Servizio in attesa di dati...");
+
+        // --- MODIFICA CHE RISOLVE IL CRASH ---
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC | ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
         } else {
             startForeground(NOTIFICATION_ID, notification);
         }
@@ -122,11 +143,14 @@ public class DataMonitorService extends Service {
         try {
             final long now = System.currentTimeMillis();
             if (!isManualOverride) {
+
                 final long lastSentTime = SP.getLong(KEY_LAST_SUCCESSFUL_SEND_MS, 0L);
                 final long timeSinceLastProcess = now - lastSentTime;
 
                 if (lastSentTime > 0 && timeSinceLastProcess > LONG_PAUSE_THRESHOLD_MS) {
-                    EselLog.LogW(TAG, "[FILTRO] SCARTATO SGV(" + sgv.value + ") perché è il primo dopo una lunga pausa di " + (timeSinceLastProcess / 60000) + " min. Resetto il timer e lo stato.");
+                    EselLog.LogW(TAG, "Rilevata lunga pausa di " + (timeSinceLastProcess / 60000) + " min (es. ricarica sensore).");
+                    EselLog.LogW(TAG, "Scarto la prima lettura (" + sgv.value + ") come da protocollo di risincronizzazione.");
+
                     SP.putLong(KEY_LAST_SGV_TIMESTAMP, 0L);
                     SP.putInt(KEY_LAST_SGV_RAW_VALUE, -1);
                     SP.putInt(KEY_LAST_SGV_FINAL_VALUE, -1);
@@ -135,9 +159,10 @@ public class DataMonitorService extends Service {
                 }
 
                 if (lastSentTime > 0 && timeSinceLastProcess < COOLDOWN_PERIOD_MS) {
-                    EselLog.LogI(TAG, "[FILTRO] Scartato per cooldown. Ultimo invio troppo recente.");
+                    EselLog.LogI(TAG, "[FILTRO] Scartato per cooldown. Ultimo invio ("+ (timeSinceLastProcess / 1000) +"s fa) troppo recente.");
                     return;
                 }
+
             } else {
                 EselLog.LogW(TAG, "SYNC MANUALE: Filtri temporali bypassati.");
             }
@@ -149,9 +174,6 @@ public class DataMonitorService extends Service {
             long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
             boolean hasTimeGap = (lastSgvTimestamp > 0) && (sgv.timestamp - lastSgvTimestamp) > 12 * 60 * 1000L;
 
-            // **FIX BUG "DATO INDIETRO"**
-            // Lo smoothing viene applicato a una copia del dato, solo per calcolare lo slope.
-            // Il valore originale (sgv) non viene mai modificato.
             SGV sgvForSlope = new SGV(sgv.raw, sgv.timestamp, 0);
             boolean smoothing_enabled = SP.getBoolean("smooth_data", false);
             if (smoothing_enabled && lastSentRawValue != -1 && !hasTimeGap) {
@@ -179,6 +201,8 @@ public class DataMonitorService extends Service {
             SP.putInt(KEY_LAST_SGV_RAW_VALUE, sgv.raw);
             SP.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.raw);
 
+            updateSgvHistory(sgv);
+
             String trendArrow = getTrendArrow(sgv.direction);
             String notificationText = "Ultimo invio: " + sgv.value + " " + trendArrow + " alle " + df.format(new Date(sgv.timestamp));
             updateNotification(notificationText);
@@ -190,6 +214,30 @@ public class DataMonitorService extends Service {
                 wakeLock.release();
                 EselLog.LogW(TAG, "WakeLock rilasciato.");
             }
+        }
+    }
+
+    private void updateSgvHistory(SGV newSgv) {
+        try {
+            String historyJson = SP.getString(KEY_SGV_HISTORY_JSON, "[]");
+            Type listType = new TypeToken<ArrayList<SgvHistoryPoint>>() {}.getType();
+            List<SgvHistoryPoint> history = gson.fromJson(historyJson, listType);
+            if (history == null) {
+                history = new ArrayList<>();
+            }
+
+            history.add(new SgvHistoryPoint(newSgv.timestamp, newSgv.value));
+
+            while (history.size() > HISTORY_MAX_SIZE) {
+                history.remove(0);
+            }
+
+            String newHistoryJson = gson.toJson(history);
+            SP.putString(KEY_SGV_HISTORY_JSON, newHistoryJson);
+            EselLog.LogI(TAG, "Cronologia SGV aggiornata. Punti attuali: " + history.size());
+
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "Errore durante l'aggiornamento della cronologia SGV", e);
         }
     }
 
@@ -249,7 +297,7 @@ public class DataMonitorService extends Service {
     }
 
     private Notification buildNotification(String contentText) {
-        Intent notificationIntent = new Intent(this, esel.esel.esel.MainActivity.class);
+        Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Eversense-Reader Attivo")

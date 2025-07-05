@@ -1,11 +1,10 @@
-// ---------- CODICE CON MINSDK AGGIORNATO ----------
+// ---------- CODICE CON LIBRERIA GRAFICA AGGIUNTA ----------
 apply plugin: 'com.android.application'
 
 android {
     compileSdk 35
     defaultConfig {
         applicationId "esel.esel.esel"
-        // --- MODIFICA: Versione minima alzata ad Android 13 (API 33) ---
         minSdk 33
         targetSdk 35
         versionCode 1
@@ -48,6 +47,9 @@ dependencies {
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
 
     implementation 'androidx.preference:preference-ktx:1.2.1'
+
+    // --- NUOVA DIPENDENZA PER IL GRAFICO ---
+    implementation 'com.github.PhilJay:MPAndroidChart:v3.1.0'
 
     // Dipendenze per i test
     testImplementation 'junit:junit:4.13.2'
