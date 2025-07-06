@@ -1,4 +1,4 @@
-// ---------- CODICE COMPLETO E MODIFICATO ----------
+// ---------- CODICE CON FIX ALL'ERRORE getSystemService ----------
 package esel.esel.esel;
 
 import android.content.Context;
@@ -31,26 +31,22 @@ public class SettingsFragment extends PreferenceFragmentCompat implements Shared
     private Preference statusLastReading;
     private Preference statusLastSend;
     private Preference manualSyncButton;
-    private Preference batteryOptimizationButton; // NUOVO: Riferimento al pulsante per la batteria
+    private Preference batteryOptimizationButton;
 
     @Override
     public void onCreatePreferences(Bundle savedInstanceState, String rootKey) {
         setPreferencesFromResource(R.xml.root_preferences, rootKey);
 
-        // Riferimenti alle preferenze esistenti
         statusServiceState = findPreference("status_service_state");
         statusLastReading = findPreference("status_last_reading");
         statusLastSend = findPreference("status_last_send");
         manualSyncButton = findPreference("manual_sync_button");
         SwitchPreferenceCompat enableServiceSwitch = findPreference("enable_service");
-
-        // NUOVO: Gestione del pulsante per le ottimizzazioni della batteria
         batteryOptimizationButton = findPreference("battery_optimization_button");
+
         if (batteryOptimizationButton != null) {
             batteryOptimizationButton.setOnPreferenceClickListener(preference -> {
                 if (getActivity() != null) {
-                    // Crea un intent per portare l'utente direttamente alle impostazioni
-                    // di ottimizzazione della batteria per questa specifica app.
                     Intent intent = new Intent();
                     intent.setAction(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
                     intent.setData(Uri.parse("package:" + getActivity().getPackageName()));
@@ -75,7 +71,7 @@ public class SettingsFragment extends PreferenceFragmentCompat implements Shared
                 if (isEnabled) {
                     if (!SP.getBoolean("is_app_unlocked", false)) {
                         EselLog.LogW("SettingsFragment", "Tentativo di avviare il servizio su un'app non attivata.");
-                        Toast.makeText(getActivity(), "Devi prima attivare l'app al primo avvio!", Toast.LENGTH_LONG).show();
+                        Toast.makeText(getActivity(), R.string.settings_toast_activation_required, Toast.LENGTH_LONG).show();
                         return false;
                     }
                     EselLog.LogI("SettingsFragment", "Interruttore attivato dall'utente. Avvio servizio...");
@@ -106,14 +102,14 @@ public class SettingsFragment extends PreferenceFragmentCompat implements Shared
         long lastSeenWhen = SP.getLong(EsNotificationListener.KEY_LAST_SEEN_NOTIFICATION_WHEN, 0L);
 
         if (lastSeenText.isEmpty() || lastSeenWhen == 0L) {
-            Toast.makeText(getActivity(), "Nessuna lettura recente in memoria da inviare.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(getActivity(), R.string.settings_toast_no_recent_reading, Toast.LENGTH_SHORT).show();
             EselLog.LogE("SettingsFragment", "Sync Manuale fallito: non ci sono dati in cache.");
             return;
         }
 
         SGV sgvToSend = EsNotificationListener.generateSGVFromText(lastSeenText, lastSeenWhen);
         if (sgvToSend == null) {
-            Toast.makeText(getActivity(), "Errore: impossibile processare l'ultima lettura.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(getActivity(), R.string.settings_toast_processing_error, Toast.LENGTH_SHORT).show();
             EselLog.LogE("SettingsFragment", "Sync Manuale fallito: impossibile generare SGV dal testo: " + lastSeenText);
             return;
         }
@@ -123,63 +119,62 @@ public class SettingsFragment extends PreferenceFragmentCompat implements Shared
         manualSyncIntent.putExtra(EsNotificationListener.EXTRA_SGV_DATA, sgvToSend);
         ContextCompat.startForegroundService(getActivity(), manualSyncIntent);
 
-        Toast.makeText(getActivity(), "Comando di Sync Manuale inviato!", Toast.LENGTH_SHORT).show();
+        Toast.makeText(getActivity(), R.string.settings_toast_manual_sync_sent, Toast.LENGTH_SHORT).show();
     }
 
     private void updateStatusSummaries() {
         if (getContext() == null) return;
 
-        // Aggiorna stato servizio
         boolean isServiceEnabled = SP.getBoolean("enable_service", true);
         if (isServiceEnabled) {
-            statusServiceState.setSummary("Attivo");
+            statusServiceState.setSummary(R.string.settings_service_status_running);
             statusServiceState.setIcon(R.drawable.ic_status_dot_green);
         } else {
-            statusServiceState.setSummary("Fermato dall'utente");
+            statusServiceState.setSummary(R.string.settings_service_status_stopped);
             statusServiceState.setIcon(R.drawable.ic_status_dot_red);
         }
 
-        // Aggiorna ultima lettura
         long lastSgvTimestamp = SP.getLong(DataMonitorService.KEY_LAST_SGV_TIMESTAMP, 0L);
         if (lastSgvTimestamp > 0) {
             int lastReadingValue = SP.getInt(DataMonitorService.KEY_LAST_SGV_FINAL_VALUE, 0);
             SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
-            statusLastReading.setSummary(lastReadingValue + " mg/dL alle " + sdf.format(new Date(lastSgvTimestamp)));
+            String formattedTime = sdf.format(new Date(lastSgvTimestamp));
+            statusLastReading.setSummary(getString(R.string.settings_last_reading_summary_placeholder, lastReadingValue, formattedTime));
         } else {
-            statusLastReading.setSummary("Nessuna lettura ancora ricevuta");
+            statusLastReading.setSummary(R.string.settings_last_reading_none);
         }
 
-        // Aggiorna ultimo invio
         long lastSendTime = SP.getLong(DataMonitorService.KEY_LAST_SUCCESSFUL_SEND_MS, 0L);
         if (lastSendTime > 0) {
             long secondsAgo = (System.currentTimeMillis() - lastSendTime) / 1000;
             if (secondsAgo < 60) {
-                statusLastSend.setSummary(secondsAgo + " secondi fa");
+                statusLastSend.setSummary(getString(R.string.settings_last_send_seconds_ago, (int) secondsAgo));
             } else {
-                statusLastSend.setSummary((secondsAgo / 60) + " minuti fa");
+                statusLastSend.setSummary(getString(R.string.settings_last_send_minutes_ago, (int) (secondsAgo / 60)));
             }
         } else {
-            statusLastSend.setSummary("Nessun invio ancora effettuato");
+            statusLastSend.setSummary(R.string.settings_last_send_none);
         }
 
-        // NUOVO: Aggiorna lo stato delle ottimizzazioni batteria
         updateBatteryOptimizationStatus();
     }
 
-    // NUOVO: Metodo per controllare e aggiornare dinamicamente il summary della preferenza batteria
     private void updateBatteryOptimizationStatus() {
         if (getContext() == null || batteryOptimizationButton == null) return;
 
+        // --- MODIFICA CHE RISOLVE L'ERRORE ---
+        // Dobbiamo prima ottenere il contesto (getContext()) e poi chiamare il metodo.
         PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
+        if (pm == null) return; // Aggiungiamo un controllo di sicurezza extra
+
         boolean isIgnoringOptimizations = pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
 
         if (isIgnoringOptimizations) {
-            batteryOptimizationButton.setSummary("Ottimo! Le ottimizzazioni della batteria sono già disabilitate per questa app.");
+            batteryOptimizationButton.setSummary(R.string.settings_battery_settings_summary_ok);
         } else {
-            batteryOptimizationButton.setSummary("ATTENZIONE: Clicca qui per disabilitare le ottimizzazioni e garantire che il servizio non venga chiuso.");
+            batteryOptimizationButton.setSummary(R.string.settings_battery_settings_summary_warn);
         }
     }
-
 
     @Override
     public void onResume() {
@@ -187,7 +182,6 @@ public class SettingsFragment extends PreferenceFragmentCompat implements Shared
         if (getPreferenceManager() != null && getPreferenceManager().getSharedPreferences() != null) {
             getPreferenceManager().getSharedPreferences().registerOnSharedPreferenceChangeListener(this);
         }
-        // Chiama l'aggiornamento completo quando il fragment diventa visibile
         updateStatusSummaries();
     }
 
@@ -201,8 +195,19 @@ public class SettingsFragment extends PreferenceFragmentCompat implements Shared
 
     @Override
     public void onSharedPreferenceChanged(SharedPreferences sharedPreferences, String key) {
+        if (key != null && key.equals("app_language")) {
+            if (getActivity() != null) {
+                Intent i = getActivity().getBaseContext().getPackageManager()
+                        .getLaunchIntentForPackage(getActivity().getBaseContext().getPackageName());
+                if (i != null) {
+                    i.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    startActivity(i);
+                }
+            }
+            return;
+        }
+
         if (getActivity() != null) {
-            // Aggiorna le viste in modo sicuro sul thread UI
             getActivity().runOnUiThread(this::updateStatusSummaries);
         }
     }

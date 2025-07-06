@@ -17,7 +17,7 @@
             android:id="@+id/textViewActivationTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Attivazione Richiesta"
+            android:text="@string/activation_title"
             android:textSize="24sp"
             android:textStyle="bold"
             app:layout_constraintTop_toTopOf="parent"
@@ -29,7 +29,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:text="Usa il seguente codice per generare la chiave di sblocco:"
+            android:text="@string/activation_instructions"
             android:textAlignment="center"
             android:textSize="16sp"
             app:layout_constraintTop_toBottomOf="@id/textViewActivationTitle"
@@ -57,7 +57,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="32dp"
-            android:hint="Inserisci codice di sblocco"
+            android:hint="@string/activation_unlock_code_hint"
             android:textAlignment="center"
             app:layout_constraintTop_toBottomOf="@id/textViewGeneratedCode"
             app:layout_constraintStart_toStartOf="parent"
@@ -69,7 +69,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Sblocca"
+            android:text="@string/activation_unlock_button"
             app:layout_constraintTop_toBottomOf="@id/editTextUnlockCode"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintEnd_toEndOf="parent" />
@@ -89,7 +89,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Configurazione Permessi"
+                android:text="@string/permissions_title"
                 android:textSize="20sp"
                 android:textStyle="bold" />
 
@@ -109,13 +109,13 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="8dp"
-                    android:text="Accesso alle Notifiche" />
+                    android:text="@string/permissions_notification_listener" />
                 <Button
                     android:id="@+id/buttonEnableNotifications"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     style="?attr/materialButtonOutlinedStyle"
-                    android:text="Abilita" />
+                    android:text="@string/permissions_enable_button" />
             </LinearLayout>
 
             <LinearLayout
@@ -134,13 +134,13 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="8dp"
-                    android:text="Ottimizzazione Batteria" />
+                    android:text="@string/permissions_battery_optimization" />
                 <Button
                     android:id="@+id/buttonDisableBattery"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     style="?attr/materialButtonOutlinedStyle"
-                    android:text="Disabilita" />
+                    android:text="@string/permissions_disable_button" />
             </LinearLayout>
 
             <LinearLayout
@@ -159,13 +159,13 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:layout_marginStart="8dp"
-                    android:text="Servizio di Stabilità (Anti-Kill)" />
+                    android:text="@string/permissions_stability_service" />
                 <Button
                     android:id="@+id/buttonEnableAccessibility"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     style="?attr/materialButtonOutlinedStyle"
-                    android:text="Attiva" />
+                    android:text="@string/permissions_activate_button" />
             </LinearLayout>
 
         </LinearLayout>
@@ -175,7 +175,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="32dp"
-            android:text="Inizia a usare l'app"
+            android:text="@string/permissions_start_app"
             android:enabled="false"
             android:visibility="gone"
             tools:visibility="visible"

@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE CON FIX ANTI-CRASH ----------
+// ---------- CODICE CON STRINGHE CENTRALIZZATE ----------
 package esel.esel.esel;
 
 import android.content.Context;
@@ -16,6 +16,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.Nullable;
+import androidx.annotation.StringRes;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.NotificationManagerCompat;
 
@@ -99,18 +100,18 @@ public class ActivationActivity extends AppCompatActivity {
         buttonUnlock.setOnClickListener(v -> {
             String userInput = editTextUnlockCode.getText().toString().trim();
             if (userInput.isEmpty()) {
-                Toast.makeText(this, "Per favore, inserisci un codice.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, R.string.activation_please_enter_code, Toast.LENGTH_SHORT).show();
                 return;
             }
 
             if (isUnlockCodeCorrect(generatedCode, userInput)) {
                 EselLog.LogI(TAG, "Codice di sblocco corretto! App attivata.");
-                Toast.makeText(this, "App attivata con successo!", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, R.string.activation_success, Toast.LENGTH_SHORT).show();
                 SP.putBoolean("is_app_unlocked", true);
                 showPermissionsChecklist();
             } else {
                 EselLog.LogW(TAG, "Codice di sblocco errato inserito.");
-                Toast.makeText(this, "Codice di sblocco errato!", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, R.string.activation_wrong_code, Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -136,7 +137,7 @@ public class ActivationActivity extends AppCompatActivity {
         });
 
         buttonEnableAccessibility.setOnClickListener(v -> {
-            Toast.makeText(this, "Trova e attiva 'Eversense-Reader' nella lista", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, R.string.permissions_toast_find_and_enable, Toast.LENGTH_LONG).show();
             Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
             startActivity(intent);
         });
@@ -145,41 +146,37 @@ public class ActivationActivity extends AppCompatActivity {
     }
 
     private void updatePermissionsChecklist() {
-        // --- FIX ANTI-CRASH: Aggiunto un controllo per assicurarsi che le viste siano pronte ---
-        // Se il layout dei permessi non è ancora stato inizializzato o reso visibile, non facciamo nulla.
         if (permissionsLayout == null) {
             return;
         }
 
-        // Controlla e aggiorna lo stato per ogni permesso
         boolean notificationOK = isNotificationListenerEnabled();
-        updateChecklistItemUI(iconNotificationPermission, buttonEnableNotifications, notificationOK, "Abilita");
+        updateChecklistItemUI(iconNotificationPermission, buttonEnableNotifications, notificationOK, R.string.permissions_enable_button);
 
         boolean batteryOK = isBatteryOptimizationIgnored();
-        updateChecklistItemUI(iconBatteryPermission, buttonDisableBattery, batteryOK, "Disabilita");
+        updateChecklistItemUI(iconBatteryPermission, buttonDisableBattery, batteryOK, R.string.permissions_disable_button);
 
         boolean accessibilityOK = isAccessibilityServiceEnabled();
-        updateChecklistItemUI(iconAccessibilityPermission, buttonEnableAccessibility, accessibilityOK, "Attiva");
+        updateChecklistItemUI(iconAccessibilityPermission, buttonEnableAccessibility, accessibilityOK, R.string.permissions_activate_button);
 
-        // Abilita il pulsante finale solo se TUTTI i permessi sono OK
         if (areAllPermissionsGranted()) {
             buttonStartApp.setEnabled(true);
-            buttonStartApp.setText("Inizia a usare l'app");
+            buttonStartApp.setText(R.string.permissions_start_app);
         } else {
             buttonStartApp.setEnabled(false);
-            buttonStartApp.setText("Permessi mancanti...");
+            buttonStartApp.setText(R.string.permissions_missing);
         }
     }
 
-    private void updateChecklistItemUI(ImageView icon, Button button, boolean isGranted, String buttonText) {
+    private void updateChecklistItemUI(ImageView icon, Button button, boolean isGranted, @StringRes int buttonTextResId) {
         if (isGranted) {
             icon.setImageResource(R.drawable.ic_status_dot_green);
             button.setEnabled(false);
-            button.setText("OK");
+            button.setText(R.string.permissions_ok_button);
         } else {
             icon.setImageResource(R.drawable.ic_status_dot_red);
             button.setEnabled(true);
-            button.setText(buttonText);
+            button.setText(buttonTextResId);
         }
     }
 
@@ -203,9 +200,9 @@ public class ActivationActivity extends AppCompatActivity {
         try {
             accessibilityEnabled = Settings.Secure.getInt(
                     getApplicationContext().getContentResolver(),
-                    android.provider.Settings.Secure.ACCESSIBILITY_ENABLED);
+                    Settings.Secure.ACCESSIBILITY_ENABLED);
         } catch (Settings.SettingNotFoundException e) {
-            EselLog.LogE(TAG, "Errore nel leggere le impostazioni di accessibilità: " + e.getMessage());
+            EselLog.LogE("ActivationActivity", "Errore nel leggere le impostazioni di accessibilità: " + e.getMessage());
         }
         TextUtils.SimpleStringSplitter colonSplitter = new TextUtils.SimpleStringSplitter(':');
 

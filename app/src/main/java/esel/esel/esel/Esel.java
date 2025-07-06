@@ -1,9 +1,10 @@
-// ---------- CODICE CON FIX ALLA CHIAMATA DI LOG ----------
+// ---------- CODICE CON APPLICAZIONE DELLA LINGUA ALL'AVVIO ----------
 package esel.esel.esel;
 
 import android.app.Application;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -14,6 +15,7 @@ import androidx.core.content.ContextCompat;
 
 import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
+import esel.esel.esel.util.LocaleHelper; // <-- NUOVO IMPORT
 import esel.esel.esel.util.SP;
 
 public class Esel extends Application {
@@ -22,6 +24,15 @@ public class Esel extends Application {
     private static Resources sResources;
 
     public static final String ALERT_CHANNEL_ID = "EselAlertChannel";
+
+    // --- NUOVO METODO DA AGGIUNGERE ---
+    // Questo metodo viene chiamato da Android prima di onCreate()
+    // ed è il posto perfetto per impostare la lingua.
+    @Override
+    protected void attachBaseContext(Context base) {
+        super.attachBaseContext(LocaleHelper.onAttach(base));
+    }
+
 
     @Override
     public void onCreate() {
@@ -59,7 +70,6 @@ public class Esel extends Application {
             EselLog.LogI("SystemInfo", "----------------------------------------------------");
 
         } catch (PackageManager.NameNotFoundException e) {
-            // --- MODIFICA CHE RISOLVE L'ERRORE DI COMPILAZIONE ---
             EselLog.LogE("SystemInfo", "Impossibile ottenere la versione dell'app: " + e.getMessage());
         }
     }

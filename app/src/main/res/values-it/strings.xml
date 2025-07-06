@@ -1,0 +1,90 @@
+<resources>
+    <string name="app_name">Eversense-Reader</string>
+    <string name="app_subtitle">di Francesco Chiariello</string>
+    <string name="app_version">Versione 1.0</string>
+
+    <string name="action_settings">Impostazioni</string>
+
+    <string name="activation_title">Attivazione Richiesta</string>
+    <string name="activation_instructions">Usa il seguente codice per generare la chiave di sblocco:</string>
+    <string name="activation_unlock_code_hint">Inserisci codice di sblocco</string>
+    <string name="activation_unlock_button">Sblocca</string>
+    <string name="activation_please_enter_code">Per favore, inserisci un codice.</string>
+    <string name="activation_success">App attivata con successo!</string>
+    <string name="activation_wrong_code">Codice di sblocco errato!</string>
+    <string name="activation_unlocked_button">Sbloccata</string>
+    <string name="settings_toast_activation_required">Devi prima attivare l\'app!</string>
+
+    <string name="permissions_title">Configurazione Permessi</string>
+    <string name="permissions_notification_listener">Accesso alle Notifiche</string>
+    <string name="permissions_battery_optimization">Ottimizzazione Batteria</string>
+    <string name="permissions_stability_service">Servizio di Stabilità (Anti-Kill)</string>
+    <string name="permissions_enable_button">Abilita</string>
+    <string name="permissions_disable_button">Disabilita</string>
+    <string name="permissions_activate_button">Attiva</string>
+    <string name="permissions_ok_button">OK</string>
+    <string name="permissions_missing">Permessi mancanti…</string>
+    <string name="permissions_start_app">Inizia a usare l\'app</string>
+    <string name="permissions_toast_find_and_enable">Trova e attiva \'Eversense-Reader\' nella lista</string>
+
+    <string name="settings_category_status">Stato Attuale</string>
+    <string name="settings_service_status">Stato del Servizio</string>
+    <string name="settings_service_status_running">Attivo</string>
+    <string name="settings_service_status_stopped">Fermato dall\'utente</string>
+    <string name="settings_last_reading">Ultima Lettura Valida</string>
+    <string name="settings_last_reading_none">Nessuna lettura ancora ricevuta</string>
+    <string name="settings_last_reading_summary_placeholder">%1$d mg/dL alle %2$s</string>
+    <string name="settings_manual_sync">SINCRONIZZAZIONE MANUALE</string>
+    <string name="settings_manual_sync_summary">Forza l\'invio dell\'ultima lettura valida ricevuta dal sensore e resetta il ciclo.</string>
+    <string name="settings_toast_no_recent_reading">Nessuna lettura recente in memoria da inviare.</string>
+    <string name="settings_toast_processing_error">Errore: impossibile processare l\'ultima lettura.</string>
+    <string name="settings_toast_manual_sync_sent">Comando di Sync Manuale inviato!</string>
+    <string name="settings_last_send">Ultimo Invio Riuscito</string>
+    <string name="settings_last_send_none">Nessun invio ancora effettuato</string>
+    <string name="settings_last_send_seconds_ago">%d secondi fa</string>
+    <string name="settings_last_send_minutes_ago">%d minuti fa</string>
+    <string name="settings_category_service_control">Controllo Servizio</string>
+    <string name="settings_enable_monitoring">Attiva Monitoraggio Eversense-Reader</string>
+    <string name="settings_enable_monitoring_summary">Interruttore principale per avviare e fermare il servizio di monitoraggio in background.</string>
+    <string name="settings_battery_settings">Impostazioni Batteria</string>
+    <string name="settings_battery_settings_summary_ok">Ottimo! Le ottimizzazioni della batteria sono già disabilitate.</string>
+    <string name="settings_battery_settings_summary_warn">ATTENZIONE: Clicca qui per disabilitare le ottimizzazioni.</string>
+    <string name="settings_category_graph">Grafico</string>
+    <string name="settings_graph_duration">Durata Grafico</string>
+    <string name="settings_category_language">Lingua</string>
+    <string name="settings_language_title">Lingua App</string>
+    <string name="settings_language_summary">Scegli quale lingua visualizzare nell\'app</string>
+    <string name="settings_language_system_default">Predefinita di sistema</string>
+
+    <string name="graph_title_last_hour">Grafico Ultima Ora</string>
+    <string name="graph_title_last_x_hours">Grafico Ultime %s Ore</string>
+    <string name="graph_no_data">Nessun dato da visualizzare.</string>
+    <string name="graph_dataset_label">Glicemia (mg/dL)</string>
+
+    <string name="log_activity_title">Log Applicazione</string>
+    <string name="log_loading_text">Caricamento log…</string>
+    <string name="log_menu_clear">Pulisci Log</string>
+    <string name="log_menu_share">Condividi Log</string>
+    <string name="log_menu_filter">Filtra</string>
+    <string name="log_menu_filter_all">Tutti</string>
+    <string name="log_menu_filter_info">Info</string>
+    <string name="log_menu_filter_warning">Warning</string>
+    <string name="log_menu_filter_error">Error</string>
+    <string name="log_no_data_for_filter">Nessun log da mostrare per il filtro selezionato.</string>
+    <string name="log_toast_file_not_found">File di log non trovato.</string>
+    <string name="log_toast_share_error">Impossibile condividere il file di log.</string>
+    <string name="log_share_chooser_title">Condividi log via…</string>
+
+    <string name="notification_persistent_title">Eversense-Reader Attivo</string>
+    <string name="notification_channel_description">Notifica persistente per il monitoraggio dati.</string>
+    <string name="notification_persistent_text_waiting">Servizio in attesa di dati...</string>
+    <string name="notification_persistent_text_last_send">Ultimo invio: %1$s %2$s alle %3$s</string>
+
+    <string name="notification_restart_title">Attenzione: Riavvi Frequenti</string>
+    <string name="notification_restart_text">Il servizio di monitoraggio si sta riavviando troppo spesso. Controlla le impostazioni della batteria.</string>
+
+    <string name="notification_permission_title">ATTENZIONE: Permesso Mancante</string>
+    <string name="notification_permission_text">ESEL non può leggere i dati. Clicca qui per riattivare il permesso di accesso alle notifiche.</string>
+
+    <string name="EsNotificationListener_name">Servizio Notifiche Eversense</string>
+</resources>

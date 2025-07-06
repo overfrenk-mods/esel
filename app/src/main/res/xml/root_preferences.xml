@@ -48,6 +48,17 @@
             app:icon="@android:drawable/ic_lock_idle_alarm" />
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="@string/settings_category_language">
+        <ListPreference
+            app:key="app_language"
+            app:title="@string/settings_language_title"
+            app:summary="%s"
+            app:icon="@android:drawable/ic_menu_mapmode"
+            app:defaultValue="default"
+            app:entries="@array/language_entries"
+            app:entryValues="@array/language_values" />
+    </PreferenceCategory>
+
     <PreferenceCategory app:title="Grafico">
 
         <ListPreference

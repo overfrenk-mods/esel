@@ -1,7 +1,6 @@
-// ---------- CODICE FINALE CON LOGICA DI CONDIVISIONE LOG ----------
+// ---------- CODICE CORRETTO E FINALE PER LogActivity.java ----------
 package esel.esel.esel;
 
-import esel.esel.esel.util.EselLog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -21,6 +20,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
+// IMPORT RIPRISTINATO
+import esel.esel.esel.util.EselLog;
+
 public class LogActivity extends AppCompatActivity {
 
     private TextView textViewLogContent;
@@ -38,7 +40,7 @@ public class LogActivity extends AppCompatActivity {
         setSupportActionBar(toolbar);
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            getSupportActionBar().setTitle("Log Applicazione");
+            getSupportActionBar().setTitle(R.string.log_activity_title);
         }
 
         textViewLogContent = findViewById(R.id.textview_log_content);
@@ -64,7 +66,7 @@ public class LogActivity extends AppCompatActivity {
         }
 
         if (filteredList.isEmpty()) {
-            textViewLogContent.setText("Nessun log da mostrare per il filtro selezionato.");
+            textViewLogContent.setText(R.string.log_no_data_for_filter);
             return;
         }
         StringBuilder sb = new StringBuilder();
@@ -74,35 +76,31 @@ public class LogActivity extends AppCompatActivity {
         textViewLogContent.setText(sb.toString());
     }
 
-    // --- NUOVO METODO PER GESTIRE LA CONDIVISIONE DEL FILE DI LOG ---
     private void shareLogFile() {
         try {
-            // Definiamo il percorso del nostro file di log
             File logFile = new File(getFilesDir(), "app_log.txt");
 
             if (!logFile.exists()) {
-                Toast.makeText(this, "File di log non trovato.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, R.string.log_toast_file_not_found, Toast.LENGTH_SHORT).show();
                 return;
             }
 
-            // Usiamo FileProvider per creare un URI sicuro per la condivisione
             Uri logUri = FileProvider.getUriForFile(
                     this,
-                    BuildConfig.APPLICATION_ID + ".provider", // L'authority che abbiamo definito nel Manifest
+                    BuildConfig.APPLICATION_ID + ".provider",
                     logFile
             );
 
-            // Creiamo l'intent di condivisione
             Intent shareIntent = new Intent(Intent.ACTION_SEND);
             shareIntent.setType("text/plain");
             shareIntent.putExtra(Intent.EXTRA_STREAM, logUri);
-            shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION); // Diamo i permessi temporanei
+            shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
 
-            // Avviamo il selettore di app di Android
-            startActivity(Intent.createChooser(shareIntent, "Condividi log via..."));
+            startActivity(Intent.createChooser(shareIntent, getString(R.string.log_share_chooser_title)));
 
         } catch (Exception e) {
-            Toast.makeText(this, "Impossibile condividere il file di log.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, R.string.log_toast_share_error, Toast.LENGTH_SHORT).show();
+            // --- CHIAMATA DI LOG RIPRISTINATA ALLA VERSIONE CORRETTA ---
             EselLog.LogE("LogActivity", "Errore condivisione log: " + e.getMessage());
         }
     }
@@ -120,7 +118,6 @@ public class LogActivity extends AppCompatActivity {
         return true;
     }
 
-    // --- METODO AGGIORNATO PER GESTIRE TUTTI I PULSANTI DEL MENU ---
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         int itemId = item.getItemId();
@@ -128,8 +125,8 @@ public class LogActivity extends AppCompatActivity {
         if (itemId == R.id.action_clear_log) {
             appLogger.clearLogs();
             return true;
-        } else if (itemId == R.id.action_share_log) { // --- NUOVO BLOCCO ---
-            shareLogFile(); // Chiamiamo il nostro nuovo metodo
+        } else if (itemId == R.id.action_share_log) {
+            shareLogFile();
             return true;
         } else if (itemId == R.id.filter_all) {
             currentFilter = "ALL";

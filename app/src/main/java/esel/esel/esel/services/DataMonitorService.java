@@ -1,4 +1,4 @@
-// ---------- CODICE CON LOGICA DI ARRESTO ROBUSTA ----------
+// ---------- CODICE CON NOTIFICHE TRADUCIBILI ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -92,7 +92,8 @@ public class DataMonitorService extends Service {
         WatchdogReceiver.scheduleNextWatchdog(this);
 
         SP.putBoolean("service_should_be_running", true);
-        Notification notification = buildNotification("Servizio in attesa di dati...");
+        // Usa la stringa di attesa dal file strings.xml
+        Notification notification = buildNotification(getString(R.string.notification_persistent_text_waiting));
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
@@ -206,8 +207,10 @@ public class DataMonitorService extends Service {
 
             updateSgvHistory(sgv);
 
+            // Usa la stringa formattabile dal file strings.xml
             String trendArrow = getTrendArrow(sgv.direction);
-            String notificationText = "Ultimo invio: " + sgv.value + " " + trendArrow + " alle " + df.format(new Date(sgv.timestamp));
+            String formattedTime = df.format(new Date(sgv.timestamp));
+            String notificationText = getString(R.string.notification_persistent_text_last_send, String.valueOf(sgv.value), trendArrow, formattedTime);
             updateNotification(notificationText);
 
         } catch (Throwable t) {
@@ -250,17 +253,12 @@ public class DataMonitorService extends Service {
         }
     }
 
-    // --- METODO "BLINDATO" PER L'ARRESTO DEL SERVIZIO ---
     private void stopSelfService() {
         EselLog.LogW(TAG, "Inizio procedura di arresto volontario del servizio.");
 
-        // 1. Imposta i flag per indicare che l'arresto è volontario.
-        // Questo previene il riavvio da parte di onDestroy.
         SP.putBoolean("service_should_be_running", false);
         SP.putBoolean("enable_service", false);
 
-        // 2. Rimuovi la notifica e lo stato di foreground.
-        // Questa è una comunicazione critica al sistema operativo.
         EselLog.LogW(TAG, "Rimuovo lo stato di foreground...");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE);
@@ -268,11 +266,9 @@ public class DataMonitorService extends Service {
             stopForeground(true);
         }
 
-        // 3. Cancella la catena di allarmi del nostro guardiano.
         EselLog.LogW(TAG, "Cancello il Watchdog...");
         WatchdogReceiver.cancelWatchdog(this);
 
-        // 4. Ferma definitivamente il servizio.
         EselLog.LogW(TAG, "Chiamo stopSelf() per terminare il servizio.");
         stopSelf();
     }
@@ -327,8 +323,10 @@ public class DataMonitorService extends Service {
     private Notification buildNotification(String contentText) {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        // Usa la stringa per il titolo dal file strings.xml
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("Eversense-Reader Attivo")
+                .setContentTitle(getString(R.string.notification_persistent_title))
                 .setContentText(contentText)
                 .setSmallIcon(R.drawable.ic_stat_esel_sync)
                 .setColor(ContextCompat.getColor(this, R.color.green_primary))
@@ -346,13 +344,17 @@ public class DataMonitorService extends Service {
     }
 
     private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel serviceChannel = new NotificationChannel(CHANNEL_ID, "Eversense-Reader Service", NotificationManager.IMPORTANCE_LOW);
-            serviceChannel.setDescription("Notifica persistente per il monitoraggio dati.");
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) {
-                manager.createNotificationChannel(serviceChannel);
-            }
+        // Usa le stringhe dal file strings.xml
+        NotificationChannel serviceChannel = new NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.app_name), // Il nome del canale può essere lo stesso dell'app
+                NotificationManager.IMPORTANCE_LOW
+        );
+        serviceChannel.setDescription(getString(R.string.notification_channel_description));
+
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) {
+            manager.createNotificationChannel(serviceChannel);
         }
     }
 }

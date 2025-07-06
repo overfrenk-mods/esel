@@ -1,16 +1,88 @@
 <resources>
     <string name="app_name">Eversense-Reader</string>
-    <string name="app_version">V1-Chiariello Francesco</string>
+    <string name="app_subtitle">by Francesco Chiariello</string>
+    <string name="app_version">Version 1.0</string>
 
-    <string name="app_subtitle">V1 by Chiariello Francesco</string>
-
-    <string name="navigation_drawer_open">Open navigation drawer</string>
-    <string name="navigation_drawer_close">Close navigation drawer</string>
     <string name="action_settings">Settings</string>
-    <string name="max_sync_hours" translatable="false">24</string>
-    <string name="EsNotificationListener_name">Eversense_Reader</string>
-    <string name="channel_name">Reader Monitoraggio Dati</string>
-    <string name="channel_description">Notifiche per il servizio di monitoraggio continuo dei dati.</string>
-    <string name="notification_title">Reader: Monitoraggio Attivo</string>
-    <string name="notification_content">Acquisizione dati in corso in background.</string>
+
+    <string name="activation_title">Activation Required</string>
+    <string name="activation_instructions">Use the following code to generate the unlock key:</string>
+    <string name="activation_unlock_code_hint">Enter unlock code</string>
+    <string name="activation_unlock_button">Unlock</string>
+    <string name="activation_please_enter_code">Please, enter a code.</string>
+    <string name="activation_success">App activated successfully!</string>
+    <string name="activation_wrong_code">Wrong unlock code!</string>
+    <string name="activation_unlocked_button">Unlocked</string>
+    <string name="settings_toast_activation_required">You must first activate the app!</string>
+
+    <string name="permissions_title">Permissions Setup</string>
+    <string name="permissions_notification_listener">Notification Access</string>
+    <string name="permissions_battery_optimization">Battery Optimization</string>
+    <string name="permissions_stability_service">Stability Service (Anti-Kill)</string>
+    <string name="permissions_enable_button">Enable</string>
+    <string name="permissions_disable_button">Disable</string>
+    <string name="permissions_activate_button">Activate</string>
+    <string name="permissions_ok_button">OK</string>
+    <string name="permissions_missing">Permissions missing…</string>
+    <string name="permissions_start_app">Start Using App</string>
+    <string name="permissions_toast_find_and_enable">Find and enable \'Eversense-Reader\' in the list</string>
+
+    <string name="settings_category_status">Current Status</string>
+    <string name="settings_service_status">Service Status</string>
+    <string name="settings_service_status_running">Running</string>
+    <string name="settings_service_status_stopped">Stopped by user</string>
+    <string name="settings_last_reading">Last Valid Reading</string>
+    <string name="settings_last_reading_none">No reading received yet</string>
+    <string name="settings_last_reading_summary_placeholder">%1$d mg/dL at %2$s</string>
+    <string name="settings_manual_sync">MANUAL SYNCHRONIZATION</string>
+    <string name="settings_manual_sync_summary">Force send the last valid reading from the sensor and reset the cycle.</string>
+    <string name="settings_toast_no_recent_reading">No recent reading in memory to send.</string>
+    <string name="settings_toast_processing_error">Error: unable to process last reading.</string>
+    <string name="settings_toast_manual_sync_sent">Manual Sync command sent!</string>
+    <string name="settings_last_send">Last Successful Send</string>
+    <string name="settings_last_send_none">No send performed yet</string>
+    <string name="settings_last_send_seconds_ago">%d seconds ago</string>
+    <string name="settings_last_send_minutes_ago">%d minutes ago</string>
+    <string name="settings_category_service_control">Service Control</string>
+    <string name="settings_enable_monitoring">Enable Eversense-Reader Monitoring</string>
+    <string name="settings_enable_monitoring_summary">Main switch to start and stop the background monitoring service.</string>
+    <string name="settings_battery_settings">Battery Settings</string>
+    <string name="settings_battery_settings_summary_ok">Great! Battery optimizations are already disabled.</string>
+    <string name="settings_battery_settings_summary_warn">ATTENTION: Click here to disable optimizations.</string>
+    <string name="settings_category_graph">Chart</string>
+    <string name="settings_graph_duration">Chart Duration</string>
+    <string name="settings_category_language">Language</string>
+    <string name="settings_language_title">App Language</string>
+    <string name="settings_language_summary">Choose which language to display in the app</string>
+    <string name="settings_language_system_default">System Default</string>
+
+    <string name="graph_title_last_hour">Last Hour Chart</string>
+    <string name="graph_title_last_x_hours">Last %s Hours Chart</string>
+    <string name="graph_no_data">No data to display.</string>
+    <string name="graph_dataset_label">Glucose (mg/dL)</string>
+
+    <string name="log_activity_title">Application Log</string>
+    <string name="log_loading_text">Loading log…</string>
+    <string name="log_menu_clear">Clear Log</string>
+    <string name="log_menu_share">Share Log</string>
+    <string name="log_menu_filter">Filter</string>
+    <string name="log_menu_filter_all">All</string>
+    <string name="log_menu_filter_info">Info</string>
+    <string name="log_menu_filter_warning">Warning</string>
+    <string name="log_menu_filter_error">Error</string>
+    <string name="log_no_data_for_filter">No logs to show for the selected filter.</string>
+    <string name="log_toast_file_not_found">Log file not found.</string>
+    <string name="log_toast_share_error">Unable to share log file.</string>
+    <string name="log_share_chooser_title">Share log via…</string>
+
+    <string name="notification_persistent_title">Eversense-Reader Active</string>
+    <string name="notification_channel_description">Persistent notification for data monitoring.</string>
+    <string name="notification_persistent_text_waiting">Service waiting for data...</string>
+    <string name="notification_persistent_text_last_send">Last send: %1$s %2$s at %3$s</string>
+    <string name="notification_restart_title">Attention: Frequent Restarts</string>
+    <string name="notification_restart_text">The monitoring service is restarting too often. Check the battery settings.</string>
+    <string name="notification_permission_title">ATTENTION: Permission Missing</string>
+    <string name="notification_permission_text">ESEL cannot read data. Click here to re-enable notification access.</string>
+
+    <string name="EsNotificationListener_name">Eversense Notification Service</string>
 </resources>

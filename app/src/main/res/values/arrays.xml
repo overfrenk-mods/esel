@@ -15,4 +15,16 @@
         <item>12</item>
         <item>24</item>
     </string-array>
+
+    <string-array name="language_entries">
+        <item>Predefinita di sistema</item>
+        <item>English</item>
+        <item>Italiano</item>
+    </string-array>
+
+    <string-array name="language_values">
+        <item>default</item>
+        <item>en</item>
+        <item>it</item>
+    </string-array>
 </resources>
