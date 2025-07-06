@@ -1,4 +1,4 @@
-// ---------- CODICE CORRETTO E FINALE PER LogActivity.java ----------
+// ---------- CODICE FINALE CON RECYCLERVIEW PER I LOG ----------
 package esel.esel.esel;
 
 import android.content.Intent;
@@ -6,7 +6,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
@@ -14,18 +13,20 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.FileProvider;
 import androidx.lifecycle.Observer;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
-// IMPORT RIPRISTINATO
 import esel.esel.esel.util.EselLog;
 
 public class LogActivity extends AppCompatActivity {
 
-    private TextView textViewLogContent;
+    private RecyclerView logRecyclerView;
+    private LogAdapter logAdapter;
     private AppLogger appLogger;
 
     private List<String> allLogLines = new ArrayList<>();
@@ -34,6 +35,7 @@ public class LogActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Usa il nuovo layout con il RecyclerView
         setContentView(R.layout.activity_errors);
 
         Toolbar toolbar = findViewById(R.id.toolbar_log);
@@ -43,15 +45,25 @@ public class LogActivity extends AppCompatActivity {
             getSupportActionBar().setTitle(R.string.log_activity_title);
         }
 
-        textViewLogContent = findViewById(R.id.textview_log_content);
+        // Inizializza il RecyclerView e il suo Adapter
+        setupRecyclerView();
+
         appLogger = AppLogger.getInstance(getApplicationContext());
 
+        // L'observer rimane lo stesso, ma ora aggiornerà l'adapter invece della TextView
         final Observer<List<String>> logObserver = newLogLines -> {
             this.allLogLines = new ArrayList<>(newLogLines);
             updateDisplayedLogs();
         };
 
         appLogger.getLogs().observe(this, logObserver);
+    }
+
+    private void setupRecyclerView() {
+        logRecyclerView = findViewById(R.id.log_recycler_view);
+        logAdapter = new LogAdapter();
+        logRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        logRecyclerView.setAdapter(logAdapter);
     }
 
     private void updateDisplayedLogs() {
@@ -65,15 +77,8 @@ public class LogActivity extends AppCompatActivity {
                     .collect(Collectors.toList());
         }
 
-        if (filteredList.isEmpty()) {
-            textViewLogContent.setText(R.string.log_no_data_for_filter);
-            return;
-        }
-        StringBuilder sb = new StringBuilder();
-        for (String line : filteredList) {
-            sb.append(line).append("\n");
-        }
-        textViewLogContent.setText(sb.toString());
+        // Invia la lista filtrata all'adapter, che gestirà la visualizzazione
+        logAdapter.submitList(filteredList);
     }
 
     private void shareLogFile() {
@@ -100,7 +105,6 @@ public class LogActivity extends AppCompatActivity {
 
         } catch (Exception e) {
             Toast.makeText(this, R.string.log_toast_share_error, Toast.LENGTH_SHORT).show();
-            // --- CHIAMATA DI LOG RIPRISTINATA ALLA VERSIONE CORRETTA ---
             EselLog.LogE("LogActivity", "Errore condivisione log: " + e.getMessage());
         }
     }
