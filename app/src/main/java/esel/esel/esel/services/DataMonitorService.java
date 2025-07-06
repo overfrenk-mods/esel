@@ -1,4 +1,4 @@
-// ---------- CODICE CON LETTURA PREFERENZE ROBUSTA ----------
+// ---------- CODICE CON LOGICA DI ARRESTO ROBUSTA ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -10,7 +10,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.SharedPreferences; // NUOVO IMPORT
+import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
@@ -20,7 +20,7 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
-import androidx.preference.PreferenceManager; // NUOVO IMPORT
+import androidx.preference.PreferenceManager;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -45,7 +45,6 @@ import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
 
 public class DataMonitorService extends Service {
-    // ... (tutte le costanti e le variabili membro rimangono invariate) ...
     private static final String TAG = "DataMonitorService";
     public static final String CHANNEL_ID = "EselMonitorChannel";
     public static final int NOTIFICATION_ID = 101;
@@ -77,7 +76,6 @@ public class DataMonitorService extends Service {
         }
     }
 
-    // ... (onCreate, onStartCommand, setupSgvDataReceiver, processSgv rimangono invariati) ...
     @Override
     public void onCreate() {
         super.onCreate();
@@ -224,13 +222,11 @@ public class DataMonitorService extends Service {
 
     private void updateSgvHistory(SGV newSgv) {
         try {
-            // --- MODIFICA: Usiamo il metodo standard di Android per leggere le preferenze ---
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
             String durationHoursStr = prefs.getString("graph_duration_hours", "3");
 
             int durationHours = Integer.parseInt(durationHoursStr);
             int historyMaxSize = durationHours * 12;
-
 
             String historyJson = SP.getString(KEY_SGV_HISTORY_JSON, "[]");
             Type listType = new TypeToken<ArrayList<SgvHistoryPoint>>() {}.getType();
@@ -246,7 +242,6 @@ public class DataMonitorService extends Service {
             }
 
             String newHistoryJson = gson.toJson(history);
-            // Usiamo ancora la tua classe SP per scrivere, ma potremmo standardizzare anche questa in futuro
             SP.putString(KEY_SGV_HISTORY_JSON, newHistoryJson);
             EselLog.LogI(TAG, "Cronologia SGV aggiornata. Punti attuali: " + history.size() + "/" + historyMaxSize);
 
@@ -255,12 +250,30 @@ public class DataMonitorService extends Service {
         }
     }
 
-    // ... (tutti gli altri metodi, da stopSelfService in poi, rimangono invariati) ...
+    // --- METODO "BLINDATO" PER L'ARRESTO DEL SERVIZIO ---
     private void stopSelfService() {
+        EselLog.LogW(TAG, "Inizio procedura di arresto volontario del servizio.");
+
+        // 1. Imposta i flag per indicare che l'arresto è volontario.
+        // Questo previene il riavvio da parte di onDestroy.
         SP.putBoolean("service_should_be_running", false);
         SP.putBoolean("enable_service", false);
+
+        // 2. Rimuovi la notifica e lo stato di foreground.
+        // Questa è una comunicazione critica al sistema operativo.
+        EselLog.LogW(TAG, "Rimuovo lo stato di foreground...");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE);
+        } else {
+            stopForeground(true);
+        }
+
+        // 3. Cancella la catena di allarmi del nostro guardiano.
+        EselLog.LogW(TAG, "Cancello il Watchdog...");
         WatchdogReceiver.cancelWatchdog(this);
-        stopForeground(true);
+
+        // 4. Ferma definitivamente il servizio.
+        EselLog.LogW(TAG, "Chiamo stopSelf() per terminare il servizio.");
         stopSelf();
     }
 

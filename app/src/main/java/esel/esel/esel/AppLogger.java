@@ -1,4 +1,4 @@
-// ---------------- CODICE DEFINITIVO CON SCRITTURA LOG A PROVA DI CRASH ----------------
+// ---------------- CODICE CON NOME DEL THREAD NEL LOG ----------------
 package esel.esel.esel;
 
 import android.content.Context;
@@ -8,11 +8,9 @@ import androidx.lifecycle.MutableLiveData;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -22,11 +20,6 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/**
- * Singleton per la gestione centralizzata dei log dell'applicazione.
- * Scrive i log su un file interno in modo efficiente, asincrono e a prova di crash.
- * Offre LiveData per notificare l'interfaccia utente dei cambiamenti in modo sicuro.
- */
 public class AppLogger {
 
     private static final String TAG = "AppLogger";
@@ -57,15 +50,15 @@ public class AppLogger {
         return INSTANCE;
     }
 
-    /**
-     * Aggiunge una nuova riga di log.
-     */
     public void add(String type, String tag, String value) {
         executor.execute(() -> {
             try {
                 LocalDateTime currentTime = LocalDateTime.now();
                 DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-                String formattedLine = String.format("%s: [%s] %s: %s", currentTime.format(format), type, tag, value);
+
+                // --- MODIFICA: Aggiunto il nome del thread al log ---
+                String threadName = Thread.currentThread().getName();
+                String formattedLine = String.format("%s: [%s] [%s] %s: %s", currentTime.format(format), type, threadName, tag, value);
 
                 // Aggiunge in memoria
                 synchronized (logLines) {
@@ -97,7 +90,6 @@ public class AppLogger {
                 logsLiveData.postValue(Collections.emptyList());
                 return;
             }
-            // Leggiamo tutte le righe dal file
             List<String> tempLines = new ArrayList<>();
             try (BufferedReader reader = new BufferedReader(new FileReader(logFile))) {
                 String line;
@@ -108,30 +100,23 @@ public class AppLogger {
                 Log.e(TAG, "Errore durante la lettura del file di log", e);
             }
 
-            // Se il file è più grande del nostro limite, lo tronchiamo
             if (tempLines.size() > MAX_LOG_LINES) {
                 int excess = tempLines.size() - MAX_LOG_LINES;
-                tempLines = tempLines.subList(excess, tempLines.size()); // Mantiene solo le righe più recenti
-                // Riscriviamo il file troncato per tenerlo pulito
+                tempLines = tempLines.subList(excess, tempLines.size());
                 writeLogsToFile(tempLines);
             }
 
-            // Aggiorniamo la lista in memoria e l'UI
             synchronized (logLines) {
                 logLines.clear();
                 logLines.addAll(tempLines);
-                Collections.reverse(logLines); // Assumendo che le più recenti siano in fondo al file
+                Collections.reverse(logLines);
             }
             logsLiveData.postValue(new ArrayList<>(logLines));
         });
     }
 
-    /**
-     * Scrive l'intera lista di log nel file, sovrascrivendolo.
-     * Usato solo per operazioni di pulizia/troncamento all'avvio.
-     */
     private void writeLogsToFile(List<String> linesToWrite) {
-        try (PrintWriter writer = new PrintWriter(new FileWriter(logFile, false))) { // false per sovrascrivere
+        try (PrintWriter writer = new PrintWriter(new FileWriter(logFile, false))) {
             for (String line : linesToWrite) {
                 writer.println(line);
             }
@@ -140,11 +125,7 @@ public class AppLogger {
         }
     }
 
-    /**
-     * Aggiunge una singola riga in fondo al file di log in modo sicuro (append).
-     */
     private void appendLineToFile(String line) {
-        // Usiamo FileWriter in modalità append (true) e un PrintWriter con auto-flush
         try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(logFile, true)))) {
             writer.println(line);
         } catch (IOException e) {

@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE CON CHECKLIST PERMESSI COMPLETA ----------
+// ---------- CODICE FINALE CON FIX ANTI-CRASH ----------
 package esel.esel.esel;
 
 import android.content.Context;
@@ -42,8 +42,8 @@ public class ActivationActivity extends AppCompatActivity {
     private Button buttonEnableNotifications;
     private ImageView iconBatteryPermission;
     private Button buttonDisableBattery;
-    private ImageView iconAccessibilityPermission; // NUOVO
-    private Button buttonEnableAccessibility;   // NUOVO
+    private ImageView iconAccessibilityPermission;
+    private Button buttonEnableAccessibility;
     private Button buttonStartApp;
 
     @Override
@@ -73,12 +73,10 @@ public class ActivationActivity extends AppCompatActivity {
     }
 
     private void initializeViews() {
-        // Viste attivazione
         textViewGeneratedCode = findViewById(R.id.textViewGeneratedCode);
         editTextUnlockCode = findViewById(R.id.editTextUnlockCode);
         buttonUnlock = findViewById(R.id.buttonUnlock);
 
-        // Viste permessi
         permissionsLayout = findViewById(R.id.permissionsLayout);
         iconNotificationPermission = findViewById(R.id.iconNotificationPermission);
         buttonEnableNotifications = findViewById(R.id.buttonEnableNotifications);
@@ -86,7 +84,6 @@ public class ActivationActivity extends AppCompatActivity {
         buttonDisableBattery = findViewById(R.id.buttonDisableBattery);
         buttonStartApp = findViewById(R.id.buttonStartApp);
 
-        // NUOVE VISTE
         iconAccessibilityPermission = findViewById(R.id.iconAccessibilityPermission);
         buttonEnableAccessibility = findViewById(R.id.buttonEnableAccessibility);
     }
@@ -119,13 +116,11 @@ public class ActivationActivity extends AppCompatActivity {
     }
 
     private void showPermissionsChecklist() {
-        // Nascondi la parte di attivazione
         textViewGeneratedCode.setVisibility(View.GONE);
         findViewById(R.id.textViewActivationInstructions).setVisibility(View.GONE);
         editTextUnlockCode.setVisibility(View.GONE);
         buttonUnlock.setVisibility(View.GONE);
 
-        // Mostra la checklist dei permessi
         permissionsLayout.setVisibility(View.VISIBLE);
         buttonStartApp.setVisibility(View.VISIBLE);
 
@@ -140,7 +135,6 @@ public class ActivationActivity extends AppCompatActivity {
             startActivity(intent);
         });
 
-        // NUOVO LISTENER
         buttonEnableAccessibility.setOnClickListener(v -> {
             Toast.makeText(this, "Trova e attiva 'Eversense-Reader' nella lista", Toast.LENGTH_LONG).show();
             Intent intent = new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
@@ -151,6 +145,12 @@ public class ActivationActivity extends AppCompatActivity {
     }
 
     private void updatePermissionsChecklist() {
+        // --- FIX ANTI-CRASH: Aggiunto un controllo per assicurarsi che le viste siano pronte ---
+        // Se il layout dei permessi non è ancora stato inizializzato o reso visibile, non facciamo nulla.
+        if (permissionsLayout == null) {
+            return;
+        }
+
         // Controlla e aggiorna lo stato per ogni permesso
         boolean notificationOK = isNotificationListenerEnabled();
         updateChecklistItemUI(iconNotificationPermission, buttonEnableNotifications, notificationOK, "Abilita");
@@ -158,7 +158,6 @@ public class ActivationActivity extends AppCompatActivity {
         boolean batteryOK = isBatteryOptimizationIgnored();
         updateChecklistItemUI(iconBatteryPermission, buttonDisableBattery, batteryOK, "Disabilita");
 
-        // NUOVO CONTROLLO
         boolean accessibilityOK = isAccessibilityServiceEnabled();
         updateChecklistItemUI(iconAccessibilityPermission, buttonEnableAccessibility, accessibilityOK, "Attiva");
 
@@ -184,7 +183,6 @@ public class ActivationActivity extends AppCompatActivity {
         }
     }
 
-    // MODIFICATO per includere il nuovo controllo
     private boolean areAllPermissionsGranted() {
         return isNotificationListenerEnabled() && isBatteryOptimizationIgnored() && isAccessibilityServiceEnabled();
     }
@@ -199,7 +197,6 @@ public class ActivationActivity extends AppCompatActivity {
         return pm.isIgnoringBatteryOptimizations(getPackageName());
     }
 
-    // NUOVO METODO per controllare se il servizio di accessibilità è attivo
     private boolean isAccessibilityServiceEnabled() {
         int accessibilityEnabled = 0;
         final String service = getPackageName() + "/" + StabilityService.class.getCanonicalName();

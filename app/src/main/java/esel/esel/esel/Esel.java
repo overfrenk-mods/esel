@@ -1,11 +1,12 @@
-// ---------- CODICE FINALE CON CRASHCATCHER INSTALLATO ----------
+// ---------- CODICE CON FIX ALLA CHIAMATA DI LOG ----------
 package esel.esel.esel;
 
 import android.app.Application;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
-import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.os.Build;
 
@@ -26,13 +27,14 @@ public class Esel extends Application {
     public void onCreate() {
         super.onCreate();
 
-        // --- FIX 3: Installiamo la nostra "scatola nera" per i crash ---
         CrashCatcher.install(this);
-
         EselLog.init(this);
 
         sInstance = this;
         sResources = getResources();
+
+        logSystemInfo();
+
         EselLog.LogI("EselApp", "Application onCreate");
 
         createNotificationChannels();
@@ -43,8 +45,26 @@ public class Esel extends Application {
         }
     }
 
+    private void logSystemInfo() {
+        try {
+            PackageInfo pInfo = getPackageManager().getPackageInfo(getPackageName(), 0);
+            String versionName = pInfo.versionName;
+            int versionCode = pInfo.versionCode;
+
+            EselLog.LogI("SystemInfo", "----------------------------------------------------");
+            EselLog.LogI("SystemInfo", "AVVIO APPLICAZIONE");
+            EselLog.LogI("SystemInfo", "App Version: " + versionName + " (" + versionCode + ")");
+            EselLog.LogI("SystemInfo", "Device: " + Build.MANUFACTURER + " " + Build.MODEL);
+            EselLog.LogI("SystemInfo", "Android Version: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")");
+            EselLog.LogI("SystemInfo", "----------------------------------------------------");
+
+        } catch (PackageManager.NameNotFoundException e) {
+            // --- MODIFICA CHE RISOLVE L'ERRORE DI COMPILAZIONE ---
+            EselLog.LogE("SystemInfo", "Impossibile ottenere la versione dell'app: " + e.getMessage());
+        }
+    }
+
     private void createNotificationChannels() {
-        // Canale per gli avvisi critici del Watchdog (alta priorità)
         NotificationChannel alertChannel = new NotificationChannel(
                 ALERT_CHANNEL_ID,
                 "Avvisi Critici Eversense-Reader",
@@ -52,7 +72,6 @@ public class Esel extends Application {
         );
         alertChannel.setDescription("Notifiche per problemi critici di funzionamento dell'app");
 
-        // Registriamo il canale con il sistema
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null) {
             manager.createNotificationChannel(alertChannel);
