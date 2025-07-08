@@ -87,4 +87,10 @@
     <string name="notification_permission_text">ESEL non può leggere i dati. Clicca qui per riattivare il permesso di accesso alle notifiche.</string>
 
     <string name="EsNotificationListener_name">Servizio Notifiche Eversense</string>
+
+    <string name="settings_category_advanced">Avanzate</string>
+    <string name="settings_restart_notification_title">Notifiche di Riavvio</string>
+    <string name="settings_restart_notification_summary">Notifica se il servizio si riavvia troppo spesso</string>
+    <string name="settings_log_size_title">Dimensione Log</string>
+    <string name="settings_log_size_summary">Imposta il numero massimo di righe nel file di log</string>
 </resources>

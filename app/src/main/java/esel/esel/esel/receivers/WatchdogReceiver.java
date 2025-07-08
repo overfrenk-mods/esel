@@ -1,4 +1,4 @@
-// ---------- CODICE CON FIX ANTI-ANR (goAsync) ----------
+// ---------- CODICE CON OPZIONE PER DISABILITARE NOTIFICHE DI RIAVVIO ----------
 package esel.esel.esel.receivers;
 
 import android.Manifest;
@@ -9,6 +9,7 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences; // NUOVO IMPORT
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.provider.Settings;
@@ -17,6 +18,7 @@ import android.util.Log;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
+import androidx.preference.PreferenceManager; // NUOVO IMPORT
 
 import java.util.Set;
 
@@ -25,11 +27,13 @@ import esel.esel.esel.R;
 import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
+import esel.esel.esel.util.WakeLockHelper;
 
 public class WatchdogReceiver extends BroadcastReceiver {
 
     private static final String TAG = "WatchdogReceiver";
     private static final long WATCHDOG_INTERVAL_MS = 15 * 60 * 1000L;
+    private static final long WAKELOCK_TIMEOUT_MS = 60 * 1000L; // 1 minuto
 
     private static final int RESTART_THRESHOLD = 3;
     private static final long WINDOW_HOUR_MS = 60 * 60 * 1000L;
@@ -44,28 +48,27 @@ public class WatchdogReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         EselLog.LogW(TAG, "Allarme Watchdog 'L'Origlione' scattato!");
 
-        // --- FIX ANTI-ANR: Usiamo goAsync per spostare il lavoro in background ---
+        WakeLockHelper.acquire(context.getApplicationContext(), WAKELOCK_TIMEOUT_MS);
+
         final PendingResult pendingResult = goAsync();
 
         new Thread(() -> {
             try {
-                // Tutta la logica viene eseguita in un thread separato
                 scheduleNextWatchdog(context);
 
                 if (!SP.getBoolean("enable_service", true)) {
                     EselLog.LogI(TAG, "Il servizio è stato fermato volontariamente dall'utente. Il watchdog non interviene.");
-                    return; // Esce dal thread, il finish() verrà chiamato nel finally
+                    return;
                 }
 
                 checkNotificationListenerPermission(context);
                 checkAndRestartService(context);
 
             } finally {
-                // Diciamo al sistema che abbiamo finito il nostro lavoro in background.
-                // Questo è FONDAMENTALE.
                 if (pendingResult != null) {
                     pendingResult.finish();
                 }
+                WakeLockHelper.release();
                 EselLog.LogI(TAG, "Watchdog ha completato il lavoro in background.");
             }
         }).start();
@@ -89,8 +92,17 @@ public class WatchdogReceiver extends BroadcastReceiver {
         if (restartCount >= RESTART_THRESHOLD) {
             long lastWarningTime = SP.getLong("watchdog_last_warning_time", 0L);
             if ((now - lastWarningTime) > WINDOW_HOUR_MS) {
-                EselLog.LogE(TAG, "Soglia di riavvio superata! Mostro notifica di avviso all'utente.");
-                showRestartWarningNotification(context);
+                EselLog.LogE(TAG, "Soglia di riavvio superata! Controllo se mostrare la notifica...");
+
+                // --- MODIFICA: Controlliamo l'impostazione prima di mostrare la notifica ---
+                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+                if (prefs.getBoolean("enable_restart_notifications", true)) {
+                    showRestartWarningNotification(context);
+                } else {
+                    EselLog.LogW(TAG, "La notifica di riavvio è disabilitata dall'utente. Non verrà mostrata.");
+                }
+
+                // Resettiamo i contatori in ogni caso
                 SP.putInt("watchdog_restart_count", 0);
                 SP.putLong("watchdog_first_restart_timestamp", 0L);
             }
@@ -157,6 +169,7 @@ public class WatchdogReceiver extends BroadcastReceiver {
     }
 
     private void showRestartWarningNotification(Context context) {
+        // ... (il resto del metodo rimane invariato) ...
         NotificationChannel channel = new NotificationChannel(RESTART_ALERT_CHANNEL_ID, "Avvisi Riavvio ESEL", NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("Notifiche per problemi critici di funzionamento dell'app");
         NotificationManager notificationManager = context.getSystemService(NotificationManager.class);
@@ -167,10 +180,10 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, RESTART_ALERT_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_esel_sync)
-                .setContentTitle("Attenzione: Riavvi Frequenti")
-                .setContentText("Il servizio di monitoraggio si sta riavviando troppo spesso. Clicca per controllare le impostazioni della batteria.")
+                .setContentTitle(context.getString(R.string.notification_restart_title))
+                .setContentText(context.getString(R.string.notification_restart_text))
                 .setStyle(new NotificationCompat.BigTextStyle()
-                        .bigText("Il servizio di monitoraggio si sta riavviando troppo spesso. Questo può essere causato dalle impostazioni di risparmio energetico. Clicca per controllare."))
+                        .bigText(context.getString(R.string.notification_restart_text)))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(true);
@@ -183,6 +196,7 @@ public class WatchdogReceiver extends BroadcastReceiver {
     }
 
     private void showListenerPermissionWarningNotification(Context context) {
+        // ... (il resto del metodo rimane invariato) ...
         NotificationChannel channel = new NotificationChannel(LISTENER_ALERT_CHANNEL_ID, "Avvisi Permessi ESEL", NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("Notifiche per permessi mancanti o disattivati");
         NotificationManager notificationManager = context.getSystemService(NotificationManager.class);
@@ -193,10 +207,10 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, LISTENER_ALERT_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_esel_sync)
-                .setContentTitle("ATTENZIONE: Permesso Mancante")
-                .setContentText("ESEL non può leggere i dati. Clicca qui per riattivare il permesso di accesso alle notifiche.")
+                .setContentTitle(context.getString(R.string.notification_permission_title))
+                .setContentText(context.getString(R.string.notification_permission_text))
                 .setStyle(new NotificationCompat.BigTextStyle()
-                        .bigText("ESEL non può leggere i dati glicemici perché il permesso di accesso alle notifiche è stato disattivato. Clicca qui per andare alle impostazioni e riattivarlo."))
+                        .bigText(context.getString(R.string.notification_permission_text)))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setOngoing(true)
                 .setContentIntent(pendingIntent)

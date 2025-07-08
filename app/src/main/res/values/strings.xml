@@ -85,4 +85,10 @@
     <string name="notification_permission_text">ESEL cannot read data. Click here to re-enable notification access.</string>
 
     <string name="EsNotificationListener_name">Eversense Notification Service</string>
+
+    <string name="settings_category_advanced">Advanced</string>
+    <string name="settings_restart_notification_title">Restart Notifications</string>
+    <string name="settings_restart_notification_summary">Notify if the service restarts too often</string>
+    <string name="settings_log_size_title">Log Size</string>
+    <string name="settings_log_size_summary">Set the maximum number of lines in the log file</string>
 </resources>

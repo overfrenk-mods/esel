@@ -134,4 +134,22 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory app:title="@string/settings_category_advanced">
+
+        <SwitchPreferenceCompat
+            app:key="enable_restart_notifications"
+            app:title="@string/settings_restart_notification_title"
+            app:summary="@string/settings_restart_notification_summary"
+            app:defaultValue="true" />
+
+        <EditTextPreference
+            app:key="log_max_lines"
+            app:title="@string/settings_log_size_title"
+            app:summary="@string/settings_log_size_summary"
+            app:defaultValue="32000"
+            app:dialogTitle="Numero massimo di righe"
+            android:inputType="number" />
+
+    </PreferenceCategory>
+
 </PreferenceScreen>

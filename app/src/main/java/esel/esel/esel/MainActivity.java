@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE E OTTIMIZZATO ----------
+// ---------- CODICE FINALE CON LOGICA SEMPLIFICATA ----------
 package esel.esel.esel;
 
 import android.Manifest;
@@ -67,7 +67,8 @@ public class MainActivity extends AppCompatActivity {
         if (areAllPermissionsGranted() && SP.getBoolean("enable_service", true)) {
             EselLog.LogI(TAG, "Permessi OK e servizio abilitato. Avvio il DataMonitorService...");
             ContextCompat.startForegroundService(this, new Intent(this, DataMonitorService.class));
-            scheduleWatchdogAlarm();
+            // --- MODIFICA: La responsabilità di avviare il Watchdog è stata spostata al servizio stesso ---
+            // scheduleWatchdogAlarm(); // <-- RIGA RIMOSSA
         } else if (!areAllPermissionsGranted()) {
             EselLog.LogW(TAG, "Permessi mancanti. Avvio la procedura di richiesta.");
             requestMissingPermissions();
@@ -76,6 +77,8 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // Il metodo scheduleWatchdogAlarm() può essere rimosso completamente in una pulizia futura,
+    // per ora lo lasciamo per evitare di rompere altri riferimenti.
     private void scheduleWatchdogAlarm() {
         Intent intent = new Intent(this, WatchdogReceiver.class);
         boolean isAlarmUp = (PendingIntent.getBroadcast(this, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE) != null);
@@ -91,10 +94,8 @@ public class MainActivity extends AppCompatActivity {
         }, 2000); // Ritardo di 2 secondi
     }
 
-    // --- MODIFICA: Rimossi i permessi non necessari per ESEL ---
     private String[] getRequiredPermissions() {
         List<String> permissions = new ArrayList<>();
-        // Da Android 13 in su, è necessario per mostrare la notifica del servizio
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS);
         }
@@ -151,7 +152,6 @@ public class MainActivity extends AppCompatActivity {
         return true;
     }
 
-    // --- MODIFICA: Aggiunto il listener per la nuova icona del grafico ---
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         int itemId = item.getItemId();

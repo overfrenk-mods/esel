@@ -1,10 +1,14 @@
-// ---------------- CODICE CON NOME DEL THREAD NEL LOG ----------------
+// ---------------- CODICE CON DIMENSIONE LOG DINAMICA ----------------
 package esel.esel.esel;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.util.Log;
+
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
+import androidx.preference.PreferenceManager;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
@@ -24,9 +28,11 @@ public class AppLogger {
 
     private static final String TAG = "AppLogger";
     private static final String LOG_FILE_NAME = "app_log.txt";
-    private static final int MAX_LOG_LINES = 32000;
+    // --- RIMOSSA LA COSTANTE FISSA ---
+    // private static final int MAX_LOG_LINES = 32000;
 
     private static volatile AppLogger INSTANCE;
+    private final Context appContext; // Salva il contesto per usarlo dopo
     private final File logFile;
     private final ExecutorService executor;
 
@@ -34,8 +40,9 @@ public class AppLogger {
     private final List<String> logLines = new ArrayList<>();
 
     private AppLogger(Context context) {
-        logFile = new File(context.getFilesDir(), LOG_FILE_NAME);
-        executor = Executors.newSingleThreadExecutor();
+        this.appContext = context.getApplicationContext();
+        this.logFile = new File(appContext.getFilesDir(), LOG_FILE_NAME);
+        this.executor = Executors.newSingleThreadExecutor();
         loadLogsFromFile();
     }
 
@@ -56,22 +63,21 @@ public class AppLogger {
                 LocalDateTime currentTime = LocalDateTime.now();
                 DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
-                // --- MODIFICA: Aggiunto il nome del thread al log ---
                 String threadName = Thread.currentThread().getName();
                 String formattedLine = String.format("%s: [%s] [%s] %s: %s", currentTime.format(format), type, threadName, tag, value);
 
-                // Aggiunge in memoria
+                // Legge la dimensione massima dalle preferenze
+                int maxLogLines = getMaxLogLinesFromPrefs();
+
                 synchronized (logLines) {
                     logLines.add(0, formattedLine);
-                    if (logLines.size() > MAX_LOG_LINES) {
+                    // Usa la dimensione dinamica per il troncamento
+                    if (logLines.size() > maxLogLines) {
                         logLines.remove(logLines.size() - 1);
                     }
                 }
 
-                // Notifica l'UI
                 logsLiveData.postValue(new ArrayList<>(logLines));
-
-                // Scrive solo la nuova riga su file in modo sicuro
                 appendLineToFile(formattedLine);
 
             } catch (Exception e) {
@@ -90,6 +96,7 @@ public class AppLogger {
                 logsLiveData.postValue(Collections.emptyList());
                 return;
             }
+
             List<String> tempLines = new ArrayList<>();
             try (BufferedReader reader = new BufferedReader(new FileReader(logFile))) {
                 String line;
@@ -100,8 +107,9 @@ public class AppLogger {
                 Log.e(TAG, "Errore durante la lettura del file di log", e);
             }
 
-            if (tempLines.size() > MAX_LOG_LINES) {
-                int excess = tempLines.size() - MAX_LOG_LINES;
+            int maxLogLines = getMaxLogLinesFromPrefs();
+            if (tempLines.size() > maxLogLines) {
+                int excess = tempLines.size() - maxLogLines;
                 tempLines = tempLines.subList(excess, tempLines.size());
                 writeLogsToFile(tempLines);
             }
@@ -144,5 +152,18 @@ public class AppLogger {
             logsLiveData.postValue(new ArrayList<>());
             Log.w(TAG, "Log pulito dall'utente.");
         });
+    }
+
+    // --- NUOVO METODO PER LEGGERE LA PREFERENZA ---
+    private int getMaxLogLinesFromPrefs() {
+        try {
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(appContext);
+            // Legge il valore come stringa e lo converte in intero.
+            // Usa 32000 come valore di default in caso di errore.
+            return Integer.parseInt(prefs.getString("log_max_lines", "32000"));
+        } catch (NumberFormatException e) {
+            // Se l'utente inserisce un valore non valido (es. testo), usa il default
+            return 32000;
+        }
     }
 }
