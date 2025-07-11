@@ -1,4 +1,4 @@
-// ---------- CODICE CON LIBRERIA GRAFICA AGGIUNTA ----------
+// ---------- CODICE CON LIBRERIE AGGIORNATE ----------
 apply plugin: 'com.android.application'
 
 android {
@@ -39,16 +39,16 @@ dependencies {
     // Versioni originali e stabili
     implementation 'com.squareup.retrofit2:retrofit:2.11.0'
     implementation 'com.squareup.retrofit2:converter-gson:2.11.0'
-    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation 'com.google.code.gson:gson:2.13.1' // <-- AGGIORNATO
 
-    implementation 'androidx.core:core-ktx:1.13.1'
-    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.core:core-ktx:1.16.0' // <-- AGGIORNATO
+    implementation 'androidx.appcompat:appcompat:1.7.1' // <-- AGGIORNATO
     implementation 'com.google.android.material:material:1.12.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.1' // <-- AGGIORNATO
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 
     implementation 'androidx.preference:preference-ktx:1.2.1'
 
-    // --- NUOVA DIPENDENZA PER IL GRAFICO ---
     implementation 'com.github.PhilJay:MPAndroidChart:v3.1.0'
 
     // Dipendenze per i test

@@ -1,9 +1,10 @@
-// ---------- CODICE CON STRINGHE CENTRALIZZATE ----------
+// ---------- CODICE FINALE CON URL CORRETTO E LOGGING AVANZATO ----------
 package esel.esel.esel;
 
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
@@ -15,29 +16,40 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.NotificationManagerCompat;
 
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.Locale;
 import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import esel.esel.esel.services.StabilityService;
 import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
 
+import okhttp3.FormBody;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+
 public class ActivationActivity extends AppCompatActivity {
 
     private static final String TAG = "ActivationActivity";
+    private final ExecutorService networkExecutor = Executors.newSingleThreadExecutor();
 
-    // Viste per l'attivazione
     private TextView textViewGeneratedCode;
     private EditText editTextUnlockCode;
     private Button buttonUnlock;
 
-    // Viste per i permessi
     private LinearLayout permissionsLayout;
     private ImageView iconNotificationPermission;
     private Button buttonEnableNotifications;
@@ -107,11 +119,53 @@ public class ActivationActivity extends AppCompatActivity {
             if (isUnlockCodeCorrect(generatedCode, userInput)) {
                 EselLog.LogI(TAG, "Codice di sblocco corretto! App attivata.");
                 Toast.makeText(this, R.string.activation_success, Toast.LENGTH_SHORT).show();
+
+                sendActivationData(generatedCode, userInput);
+
                 SP.putBoolean("is_app_unlocked", true);
                 showPermissionsChecklist();
             } else {
                 EselLog.LogW(TAG, "Codice di sblocco errato inserito.");
                 Toast.makeText(this, R.string.activation_wrong_code, Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private void sendActivationData(String generatedCode, String unlockCode) {
+        networkExecutor.execute(() -> {
+            OkHttpClient client = new OkHttpClient();
+
+            // --- URL AGGIORNATO CON IL TUO NUOVO LINK ---
+            String url = "https://script.google.com/macros/s/AKfycbyjQVfqCNFnmy_dHFzx8RpYRwVwMbJwfSLTjwDCAA8cQGc2o9ZPbju-XvxluVxRBYbw/exec";
+
+            String deviceModel = Build.MANUFACTURER + " " + Build.MODEL;
+            String osVersion = "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")";
+
+            RequestBody formBody = new FormBody.Builder()
+                    .add("deviceModel", deviceModel)
+                    .add("osVersion", osVersion)
+                    .add("genCode", generatedCode)
+                    .add("unlockCode", unlockCode)
+                    .build();
+
+            Request request = new Request.Builder()
+                    .url(url)
+                    .post(formBody)
+                    .build();
+
+            EselLog.LogI(TAG, "Invio notifica di attivazione in corso...");
+            try (Response response = client.newCall(request).execute()) {
+                if (response.isSuccessful()) {
+                    EselLog.LogI(TAG, "Notifica di attivazione inviata con successo. Risposta: " + response.body().string());
+                } else {
+                    EselLog.LogE(TAG, "Errore nell'invio della notifica di attivazione. Codice: " + response.code() + ", Messaggio: " + response.message());
+                }
+            } catch (Exception e) {
+                StringWriter sw = new StringWriter();
+                PrintWriter pw = new PrintWriter(sw);
+                e.printStackTrace(pw);
+                String stackTrace = sw.toString();
+                EselLog.LogE(TAG, "FALLIMENTO CRITICO DI RETE. Causa: " + e.getMessage() + "\n" + stackTrace);
             }
         });
     }
@@ -200,7 +254,7 @@ public class ActivationActivity extends AppCompatActivity {
         try {
             accessibilityEnabled = Settings.Secure.getInt(
                     getApplicationContext().getContentResolver(),
-                    Settings.Secure.ACCESSIBILITY_ENABLED);
+                    android.provider.Settings.Secure.ACCESSIBILITY_ENABLED);
         } catch (Settings.SettingNotFoundException e) {
             EselLog.LogE("ActivationActivity", "Errore nel leggere le impostazioni di accessibilità: " + e.getMessage());
         }

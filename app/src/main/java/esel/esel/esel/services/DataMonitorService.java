@@ -1,4 +1,4 @@
-// ---------- CODICE CON NOTIFICHE TRADUCIBILI ----------
+// ---------- CODICE CON FIX PER LA RISINCRONIZZAZIONE POST-RICARICA ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -58,7 +58,7 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
 
-    private static final long COOLDOWN_PERIOD_MS = (5 * 60 * 1000L) - 15000L;
+    private static final long COOLDOWN_PERIOD_MS = (5 * 60 * 1000L) - 40000L; // 4 minuti e 20 secondi
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
 
     private ExecutorService executor;
@@ -92,7 +92,6 @@ public class DataMonitorService extends Service {
         WatchdogReceiver.scheduleNextWatchdog(this);
 
         SP.putBoolean("service_should_be_running", true);
-        // Usa la stringa di attesa dal file strings.xml
         Notification notification = buildNotification(getString(R.string.notification_persistent_text_waiting));
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -155,10 +154,14 @@ public class DataMonitorService extends Service {
                     EselLog.LogW(TAG, "Rilevata lunga pausa di " + (timeSinceLastProcess / 60000) + " min (es. ricarica sensore).");
                     EselLog.LogW(TAG, "Scarto la prima lettura (" + sgv.value + ") come da protocollo di risincronizzazione.");
 
+                    // --- FIX PER LA RISINCRONIZZAZIONE ---
+                    // Resettiamo solo i valori del dato precedente, ma NON l'orario dell'ultimo invio.
+                    // Questo permette alla prossima lettura valida di essere processata correttamente senza essere
+                    // bloccata dal cooldown.
                     SP.putLong(KEY_LAST_SGV_TIMESTAMP, 0L);
                     SP.putInt(KEY_LAST_SGV_RAW_VALUE, -1);
                     SP.putInt(KEY_LAST_SGV_FINAL_VALUE, -1);
-                    SP.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, now);
+                    // La riga SP.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, now); è stata rimossa perché era la causa del bug.
                     return;
                 }
 
@@ -207,7 +210,6 @@ public class DataMonitorService extends Service {
 
             updateSgvHistory(sgv);
 
-            // Usa la stringa formattabile dal file strings.xml
             String trendArrow = getTrendArrow(sgv.direction);
             String formattedTime = df.format(new Date(sgv.timestamp));
             String notificationText = getString(R.string.notification_persistent_text_last_send, String.valueOf(sgv.value), trendArrow, formattedTime);
@@ -324,7 +326,6 @@ public class DataMonitorService extends Service {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        // Usa la stringa per il titolo dal file strings.xml
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle(getString(R.string.notification_persistent_title))
                 .setContentText(contentText)
@@ -344,10 +345,9 @@ public class DataMonitorService extends Service {
     }
 
     private void createNotificationChannel() {
-        // Usa le stringhe dal file strings.xml
         NotificationChannel serviceChannel = new NotificationChannel(
                 CHANNEL_ID,
-                getString(R.string.app_name), // Il nome del canale può essere lo stesso dell'app
+                getString(R.string.app_name),
                 NotificationManager.IMPORTANCE_LOW
         );
         serviceChannel.setDescription(getString(R.string.notification_channel_description));
