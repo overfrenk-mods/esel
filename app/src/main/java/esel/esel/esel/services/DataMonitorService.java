@@ -1,4 +1,4 @@
-// ---------- CODICE CON FIX PER LA RISINCRONIZZAZIONE POST-RICARICA ----------
+// ---------- CODICE CON FIX ANTI-DERIVA DEFINITIVO ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -58,8 +58,10 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
 
-    private static final long COOLDOWN_PERIOD_MS = (5 * 60 * 1000L) - 40000L; // 4 minuti e 20 secondi
+    private static final long COOLDOWN_PERIOD_MS = (5 * 60 * 1000L) - 40000L;
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
+    // --- NUOVA COSTANTE PER IL FIX ANTI-DERIVA ---
+    private static final long MIN_TIME_SINCE_DIFF_SGV_MS = 2 * 60 * 1000L; // 2 minuti
 
     private ExecutorService executor;
     private BroadcastReceiver sgvDataReceiver;
@@ -153,19 +155,21 @@ public class DataMonitorService extends Service {
                 if (lastSentTime > 0 && timeSinceLastProcess > LONG_PAUSE_THRESHOLD_MS) {
                     EselLog.LogW(TAG, "Rilevata lunga pausa di " + (timeSinceLastProcess / 60000) + " min (es. ricarica sensore).");
                     EselLog.LogW(TAG, "Scarto la prima lettura (" + sgv.value + ") come da protocollo di risincronizzazione.");
-
-                    // --- FIX PER LA RISINCRONIZZAZIONE ---
-                    // Resettiamo solo i valori del dato precedente, ma NON l'orario dell'ultimo invio.
-                    // Questo permette alla prossima lettura valida di essere processata correttamente senza essere
-                    // bloccata dal cooldown.
                     SP.putLong(KEY_LAST_SGV_TIMESTAMP, 0L);
                     SP.putInt(KEY_LAST_SGV_RAW_VALUE, -1);
                     SP.putInt(KEY_LAST_SGV_FINAL_VALUE, -1);
-                    // La riga SP.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, now); è stata rimossa perché era la causa del bug.
                     return;
                 }
 
-                if (lastSentTime > 0 && timeSinceLastProcess < COOLDOWN_PERIOD_MS) {
+                // --- NUOVA LOGICA ANTI-DERIVA ---
+                int lastSentValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
+                boolean isDifferentValue = (sgv.value != lastSentValue);
+                boolean isAfterMinTime = (timeSinceLastProcess >= MIN_TIME_SINCE_DIFF_SGV_MS);
+
+                if (isDifferentValue && isAfterMinTime) {
+                    EselLog.LogW(TAG, "[ANTI-DERIVA] Ricevuto un valore diverso (" + sgv.value + ") dopo " + (timeSinceLastProcess/1000) + "s. Accetto la lettura per risincronizzare.");
+                    // Si procede saltando il cooldown principale
+                } else if (lastSentTime > 0 && timeSinceLastProcess < COOLDOWN_PERIOD_MS) {
                     EselLog.LogI(TAG, "[FILTRO] Scartato per cooldown. Ultimo invio ("+ (timeSinceLastProcess / 1000) +"s fa) troppo recente.");
                     return;
                 }
