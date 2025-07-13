@@ -1,16 +1,14 @@
-// ---------------- CODICE CON DIMENSIONE LOG DINAMICA ----------------
+// ---------------- CODICE CON LOGICA DI SCRITTURA CORRETTA E DEFINITIVA ----------------
 package esel.esel.esel;
 
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
-
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.preference.PreferenceManager;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -28,11 +26,9 @@ public class AppLogger {
 
     private static final String TAG = "AppLogger";
     private static final String LOG_FILE_NAME = "app_log.txt";
-    // --- RIMOSSA LA COSTANTE FISSA ---
-    // private static final int MAX_LOG_LINES = 32000;
 
     private static volatile AppLogger INSTANCE;
-    private final Context appContext; // Salva il contesto per usarlo dopo
+    private final Context appContext;
     private final File logFile;
     private final ExecutorService executor;
 
@@ -66,19 +62,24 @@ public class AppLogger {
                 String threadName = Thread.currentThread().getName();
                 String formattedLine = String.format("%s: [%s] [%s] %s: %s", currentTime.format(format), type, threadName, tag, value);
 
-                // Legge la dimensione massima dalle preferenze
                 int maxLogLines = getMaxLogLinesFromPrefs();
 
+                List<String> currentLogs;
                 synchronized (logLines) {
                     logLines.add(0, formattedLine);
-                    // Usa la dimensione dinamica per il troncamento
+                    // Applica il troncamento se si supera il limite
                     if (logLines.size() > maxLogLines) {
                         logLines.remove(logLines.size() - 1);
                     }
+                    currentLogs = new ArrayList<>(logLines);
                 }
 
-                logsLiveData.postValue(new ArrayList<>(logLines));
-                appendLineToFile(formattedLine);
+                // Notifica l'UI
+                logsLiveData.postValue(currentLogs);
+
+                // --- FIX: Riscrive l'intero file con la lista aggiornata e troncata ---
+                // In questo modo il file su disco rispetta sempre il limite.
+                writeLogsToFile(currentLogs);
 
             } catch (Exception e) {
                 Log.e(TAG, "Errore durante l'aggiunta del log", e);
@@ -111,12 +112,15 @@ public class AppLogger {
             if (tempLines.size() > maxLogLines) {
                 int excess = tempLines.size() - maxLogLines;
                 tempLines = tempLines.subList(excess, tempLines.size());
+                // Riscrive il file troncato per tenerlo pulito alla dimensione corretta
                 writeLogsToFile(tempLines);
             }
 
             synchronized (logLines) {
                 logLines.clear();
                 logLines.addAll(tempLines);
+                // Il file viene letto dal più vecchio al più nuovo,
+                // ma noi vogliamo visualizzare i più recenti in cima.
                 Collections.reverse(logLines);
             }
             logsLiveData.postValue(new ArrayList<>(logLines));
@@ -124,8 +128,13 @@ public class AppLogger {
     }
 
     private void writeLogsToFile(List<String> linesToWrite) {
-        try (PrintWriter writer = new PrintWriter(new FileWriter(logFile, false))) {
-            for (String line : linesToWrite) {
+        // Cloniamo la lista per evitare problemi di concorrenza durante la scrittura
+        List<String> linesToPersist = new ArrayList<>(linesToWrite);
+        // La visualizzazione è invertita (nuovi in cima), ma su disco salviamo in ordine cronologico.
+        Collections.reverse(linesToPersist);
+
+        try (PrintWriter writer = new PrintWriter(new FileWriter(logFile, false))) { // false per sovrascrivere
+            for (String line : linesToPersist) {
                 writer.println(line);
             }
         } catch (IOException e) {
@@ -133,6 +142,8 @@ public class AppLogger {
         }
     }
 
+    // Il metodo appendLineToFile non è più necessario con la nuova logica
+    /*
     private void appendLineToFile(String line) {
         try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(logFile, true)))) {
             writer.println(line);
@@ -140,6 +151,7 @@ public class AppLogger {
             Log.e(TAG, "Errore durante l'append del log su file", e);
         }
     }
+    */
 
     public void clearLogs() {
         executor.execute(() -> {
@@ -154,16 +166,15 @@ public class AppLogger {
         });
     }
 
-    // --- NUOVO METODO PER LEGGERE LA PREFERENZA ---
     private int getMaxLogLinesFromPrefs() {
         try {
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(appContext);
             // Legge il valore come stringa e lo converte in intero.
-            // Usa 32000 come valore di default in caso di errore.
-            return Integer.parseInt(prefs.getString("log_max_lines", "32000"));
+            // --- VALORE DI DEFAULT AGGIORNATO A 1000 ---
+            return Integer.parseInt(prefs.getString("log_max_lines", "1000"));
         } catch (NumberFormatException e) {
             // Se l'utente inserisce un valore non valido (es. testo), usa il default
-            return 32000;
+            return 1000;
         }
     }
 }
