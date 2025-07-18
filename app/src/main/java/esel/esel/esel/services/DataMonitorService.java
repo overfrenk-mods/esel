@@ -1,4 +1,4 @@
-// ---------- CODICE CON LOGICA DEFINITIVA "SALA D'ATTESA" ----------
+// ---------- CODICE CON LOGICA DEFINITIVA "SYNC INTELLIGENTE" v2 ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -61,21 +61,26 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_RAW_VALUE = "status_last_sgv_raw_value";
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
+    public static final String KEY_RESYNC_COUNT = "resync_count";
+    public static final String KEY_RESYNC_WINDOW_START_MS = "resync_window_start_ms";
 
     private static final long TIMESTAMP_COOLDOWN_MS = (5 * 60 * 1000L) - 30000L; // 4 minuti e 30 secondi
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
+    private static final long LAG_THRESHOLD_MS = 60 * 1000L; // **Soglia Resync abbassata a 60 secondi**
+    private static final int MAX_RESYNCS_PER_HOUR = 2;
+    private static final long ONE_HOUR_MS = 60 * 60 * 1000L;
+    private static final long MIN_TIME_BETWEEN_SENDS_MS = 2 * 60 * 1000L;
+
 
     private ExecutorService executor;
     private BroadcastReceiver sgvDataReceiver;
     private PowerManager.WakeLock wakeLock;
     private Gson gson;
 
-    // --- LOGICA "SALA D'ATTESA" ---
+    // --- LOGICA "SALA D'ATTESA" E "SYNC INTELLIGENTE" ---
     private final AtomicReference<SGV> datoInAttesa = new AtomicReference<>(null);
     private Handler delayedSendHandler;
     private Runnable delayedSendRunnable;
-    // --- FINE ---
-
 
     public static class SgvHistoryPoint {
         public long timestamp;
@@ -100,12 +105,10 @@ public class DataMonitorService extends Service {
 
         createNotificationChannel();
         setupSgvDataReceiver();
-
         WatchdogReceiver.scheduleNextWatchdog(this);
 
         SP.putBoolean("service_should_be_running", true);
         Notification notification = buildNotification(getString(R.string.notification_persistent_text_waiting));
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
         } else {
@@ -155,61 +158,84 @@ public class DataMonitorService extends Service {
         long lastSuccessfulSendTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
         long timeSinceLastSend = (lastSuccessfulSendTimestamp > 0) ? sgv.timestamp - lastSuccessfulSendTimestamp : Long.MAX_VALUE;
 
-        // Se il cooldown è passato, invia subito
         if (timeSinceLastSend >= TIMESTAMP_COOLDOWN_MS) {
             EselLog.LogI(TAG, "Cooldown superato. Invio immediato del dato: " + sgv.value);
-            // Cancella qualsiasi invio programmato e il dato in attesa, perché stiamo inviando uno più fresco
             cancelDelayedSend();
             sendSgv(sgv, false);
         } else {
-            // Se il cooldown è attivo, mettiamo il dato nella "sala d'attesa"
-            EselLog.LogI(TAG, "Cooldown attivo. Metto il dato " + sgv.value + " in sala d'attesa.");
             datoInAttesa.set(sgv);
-            scheduleDelayedSend();
+            EselLog.LogI(TAG, "Cooldown attivo. Messo in sala d'attesa: " + sgv.value);
+            scheduleOrCheckIntelligentSend();
         }
     }
 
-    private void scheduleDelayedSend() {
-        // Se c'è già un invio programmato, non fare nulla, aspetterà il suo turno
+    private void scheduleOrCheckIntelligentSend() {
         if (delayedSendRunnable != null) {
-            EselLog.LogI(TAG, "Invio ritardato già programmato. Attendo.");
+            EselLog.LogI(TAG, "Invio ritardato già in programma. Aggiornato solo il dato in attesa.");
             return;
         }
+
+        SGV waitingSgv = datoInAttesa.get();
+        if (waitingSgv == null) return;
 
         long lastSuccessfulSendTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
         long timeSinceLastSend = System.currentTimeMillis() - lastSuccessfulSendTimestamp;
-        long delay = TIMESTAMP_COOLDOWN_MS - timeSinceLastSend;
 
-        if (delay <= 0) {
-            // Se il ritardo è negativo, significa che il cooldown è già scaduto, invia subito
-            EselLog.LogW(TAG, "Delay calcolato negativo o nullo, invio subito il dato in attesa.");
+        // --- LOGICA SYNC INTELLIGENTE ---
+        long lag = System.currentTimeMillis() - waitingSgv.timestamp;
+        if (lag > LAG_THRESHOLD_MS && timeSinceLastSend > MIN_TIME_BETWEEN_SENDS_MS && canPerformResync()) {
+            EselLog.LogW(TAG, "Rilevato ritardo di " + (lag / 1000) + "s. TENTO UN SYNC INTELLIGENTE!");
+            incrementResyncCount();
             sendWaitingSgv();
             return;
         }
+        // --- FINE LOGICA SYNC INTELLIGENTE ---
 
-        EselLog.LogI(TAG, "Programmo l'invio del dato in attesa tra " + (delay / 1000) + " secondi.");
+        long delay = Math.max(0, TIMESTAMP_COOLDOWN_MS - timeSinceLastSend);
+        EselLog.LogI(TAG, "Programmo invio del dato in attesa tra " + (delay / 1000) + " secondi.");
         delayedSendRunnable = this::sendWaitingSgv;
         delayedSendHandler.postDelayed(delayedSendRunnable, delay);
     }
 
     private void sendWaitingSgv() {
-        SGV sgvToSend = datoInAttesa.getAndSet(null); // Prende il dato e svuota la sala d'attesa
+        SGV sgvToSend = datoInAttesa.getAndSet(null);
+        delayedSendRunnable = null;
         if (sgvToSend != null) {
-            EselLog.LogI(TAG, "Timer scaduto. Invio il dato più fresco dalla sala d'attesa: " + sgvToSend.value);
+            EselLog.LogI(TAG, "Timer scaduto. Invio dato dalla sala d'attesa: " + sgvToSend.value);
             sendSgv(sgvToSend, false);
         } else {
             EselLog.LogW(TAG, "Timer scaduto, ma la sala d'attesa era vuota.");
         }
-        delayedSendRunnable = null; // Resetta il runnable
     }
 
     private void cancelDelayedSend() {
         if (delayedSendRunnable != null) {
-            EselLog.LogW(TAG, "Annullato invio ritardato perché è arrivato un dato più fresco da inviare subito.");
+            EselLog.LogW(TAG, "Annullato invio ritardato.");
             delayedSendHandler.removeCallbacks(delayedSendRunnable);
             delayedSendRunnable = null;
         }
-        datoInAttesa.set(null); // Svuota comunque la sala d'attesa
+        datoInAttesa.set(null);
+    }
+
+    private boolean canPerformResync() {
+        long now = System.currentTimeMillis();
+        long windowStart = SP.getLong(KEY_RESYNC_WINDOW_START_MS, 0L);
+        int count = SP.getInt(KEY_RESYNC_COUNT, 0);
+
+        if (windowStart == 0L || now - windowStart > ONE_HOUR_MS) {
+            EselLog.LogI(TAG, "Finestra di resync scaduta o nuova. Resetto il contatore.");
+            SP.putInt(KEY_RESYNC_COUNT, 0);
+            SP.putLong(KEY_RESYNC_WINDOW_START_MS, now);
+            return true;
+        }
+
+        return count < MAX_RESYNCS_PER_HOUR;
+    }
+
+    private void incrementResyncCount() {
+        int count = SP.getInt(KEY_RESYNC_COUNT, 0);
+        SP.putInt(KEY_RESYNC_COUNT, count + 1);
+        EselLog.LogW(TAG, "Conteggio resync nell'ora corrente: " + (count + 1) + "/" + MAX_RESYNCS_PER_HOUR);
     }
 
 
@@ -219,18 +245,16 @@ public class DataMonitorService extends Service {
             EselLog.LogW(TAG, "WakeLock acquisito per l'elaborazione dei dati.");
         }
         try {
+            // **FIX**: Svuota la sala d'attesa e annulla i timer ogni volta che un invio va a buon fine.
+            cancelDelayedSend();
+
             if (isManualOverride) {
                 EselLog.LogW(TAG, "SYNC MANUALE: Invio forzato.");
             }
 
             long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
-            long timeSinceLastSgv = sgv.timestamp - lastSgvTimestamp;
-
-            if (lastSgvTimestamp > 0 && timeSinceLastSgv > LONG_PAUSE_THRESHOLD_MS) {
-                EselLog.LogW(TAG, "Rilevata lunga pausa di " + (timeSinceLastSgv / 60000) + " min. Resetto lo stato per il calcolo della pendenza.");
-                SP.putLong(KEY_LAST_SGV_TIMESTAMP, 0L);
-                SP.putInt(KEY_LAST_SGV_RAW_VALUE, -1);
-                SP.putInt(KEY_LAST_SGV_FINAL_VALUE, -1);
+            if (lastSgvTimestamp > 0 && (sgv.timestamp - lastSgvTimestamp) > LONG_PAUSE_THRESHOLD_MS) {
+                EselLog.LogW(TAG, "Rilevata lunga pausa di " + ((sgv.timestamp - lastSgvTimestamp) / 60000) + " min. Resetto stato pendenza.");
                 lastSgvTimestamp = 0;
             }
 
@@ -264,7 +288,6 @@ public class DataMonitorService extends Service {
             SP.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.raw);
 
             updateSgvHistory(sgv);
-
             DateFormat df = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
             String trendArrow = getTrendArrow(sgv.direction);
             String formattedTime = df.format(new Date(sgv.timestamp));
@@ -312,7 +335,7 @@ public class DataMonitorService extends Service {
         EselLog.LogW(TAG, "Inizio procedura di arresto volontario del servizio.");
         SP.putBoolean("service_should_be_running", false);
         SP.putBoolean("enable_service", false);
-        cancelDelayedSend(); // Annulla eventuali invii programmati prima di chiudere
+        cancelDelayedSend();
         WatchdogReceiver.cancelWatchdog(this);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE);
@@ -345,6 +368,9 @@ public class DataMonitorService extends Service {
         }
         if (executor != null) {
             executor.shutdown();
+        }
+        if (delayedSendHandler != null && delayedSendRunnable != null) {
+            delayedSendHandler.removeCallbacks(delayedSendRunnable);
         }
         if (SP.getBoolean("service_should_be_running", false)) {
             EselLog.LogW(TAG, "Distruzione non volontaria. Invio broadcast per il riavvio...");
