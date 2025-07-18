@@ -1,4 +1,4 @@
-// ---------- CODICE CON OPZIONE PER DISABILITARE NOTIFICHE DI RIAVVIO ----------
+// ---------- CODICE CON FIX PER IL CONSUMO DI BATTERIA ----------
 package esel.esel.esel.receivers;
 
 import android.Manifest;
@@ -9,7 +9,7 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences; // NUOVO IMPORT
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.provider.Settings;
@@ -18,7 +18,7 @@ import android.util.Log;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
-import androidx.preference.PreferenceManager; // NUOVO IMPORT
+import androidx.preference.PreferenceManager;
 
 import java.util.Set;
 
@@ -33,7 +33,7 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
     private static final String TAG = "WatchdogReceiver";
     private static final long WATCHDOG_INTERVAL_MS = 15 * 60 * 1000L;
-    private static final long WAKELOCK_TIMEOUT_MS = 60 * 1000L; // 1 minuto
+    private static final long WAKELOCK_TIMEOUT_MS = 60 * 1000L;
 
     private static final int RESTART_THRESHOLD = 3;
     private static final long WINDOW_HOUR_MS = 60 * 60 * 1000L;
@@ -42,11 +42,10 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
     private static final String LISTENER_ALERT_CHANNEL_ID = "EselListenerAlertChannel";
     private static final int LISTENER_ALERT_NOTIFICATION_ID = 103;
-    private static final int SHOW_APP_REQUEST_CODE = 902;
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        EselLog.LogW(TAG, "Allarme Watchdog 'L'Origlione' scattato!");
+        EselLog.LogW(TAG, "Allarme Watchdog 'Guardiano' scattato! Eseguo controllo di stabilità...");
 
         WakeLockHelper.acquire(context.getApplicationContext(), WAKELOCK_TIMEOUT_MS);
 
@@ -54,10 +53,11 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
         new Thread(() -> {
             try {
+                // Pianifica il prossimo watchdog subito, per garantire la continuità
                 scheduleNextWatchdog(context);
 
                 if (!SP.getBoolean("enable_service", true)) {
-                    EselLog.LogI(TAG, "Il servizio è stato fermato volontariamente dall'utente. Il watchdog non interviene.");
+                    EselLog.LogI(TAG, "Il servizio è stato fermato volontariamente. Il watchdog non interviene.");
                     return;
                 }
 
@@ -92,9 +92,8 @@ public class WatchdogReceiver extends BroadcastReceiver {
         if (restartCount >= RESTART_THRESHOLD) {
             long lastWarningTime = SP.getLong("watchdog_last_warning_time", 0L);
             if ((now - lastWarningTime) > WINDOW_HOUR_MS) {
-                EselLog.LogE(TAG, "Soglia di riavvio superata! Controllo se mostrare la notifica...");
+                EselLog.LogE(TAG, "Soglia di riavvio superata! Mostro la notifica...");
 
-                // --- MODIFICA: Controlliamo l'impostazione prima di mostrare la notifica ---
                 SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
                 if (prefs.getBoolean("enable_restart_notifications", true)) {
                     showRestartWarningNotification(context);
@@ -102,7 +101,6 @@ public class WatchdogReceiver extends BroadcastReceiver {
                     EselLog.LogW(TAG, "La notifica di riavvio è disabilitata dall'utente. Non verrà mostrata.");
                 }
 
-                // Resettiamo i contatori in ogni caso
                 SP.putInt("watchdog_restart_count", 0);
                 SP.putLong("watchdog_first_restart_timestamp", 0L);
             }
@@ -145,15 +143,19 @@ public class WatchdogReceiver extends BroadcastReceiver {
         Intent intent = new Intent(context, WatchdogReceiver.class);
         PendingIntent pendingIntent = PendingIntent.getBroadcast(context, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        Intent showActivityIntent = new Intent(context, MainActivity.class);
-        PendingIntent showActivityPendingIntent = PendingIntent.getActivity(context, SHOW_APP_REQUEST_CODE, showActivityIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
         long triggerAtMillis = System.currentTimeMillis() + WATCHDOG_INTERVAL_MS;
-        AlarmManager.AlarmClockInfo alarmClockInfo = new AlarmManager.AlarmClockInfo(triggerAtMillis, showActivityPendingIntent);
 
-        alarmManager.setAlarmClock(alarmClockInfo, pendingIntent);
+        // --- MODIFICA CRUCIALE PER LA BATTERIA ---
+        // Sostituiamo il dispendioso setAlarmClock con setExactAndAllowWhileIdle.
+        // Questo allarme è comunque affidabile per risvegliare il dispositivo dalla modalità Doze,
+        // ma è ottimizzato per un basso consumo energetico, ideale per un task di background.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+        } else {
+            alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
+        }
 
-        EselLog.LogI(TAG, "Watchdog 'L'Origlione': Prossimo allarme ad alta priorità pianificato tra 15 minuti.");
+        EselLog.LogI(TAG, "Watchdog 'Guardiano': Prossimo allarme a basso consumo pianificato tra 15 minuti.");
     }
 
     public static void cancelWatchdog(Context context) {
@@ -169,7 +171,6 @@ public class WatchdogReceiver extends BroadcastReceiver {
     }
 
     private void showRestartWarningNotification(Context context) {
-        // ... (il resto del metodo rimane invariato) ...
         NotificationChannel channel = new NotificationChannel(RESTART_ALERT_CHANNEL_ID, "Avvisi Riavvio ESEL", NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("Notifiche per problemi critici di funzionamento dell'app");
         NotificationManager notificationManager = context.getSystemService(NotificationManager.class);
@@ -196,7 +197,6 @@ public class WatchdogReceiver extends BroadcastReceiver {
     }
 
     private void showListenerPermissionWarningNotification(Context context) {
-        // ... (il resto del metodo rimane invariato) ...
         NotificationChannel channel = new NotificationChannel(LISTENER_ALERT_CHANNEL_ID, "Avvisi Permessi ESEL", NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("Notifiche per permessi mancanti o disattivati");
         NotificationManager notificationManager = context.getSystemService(NotificationManager.class);

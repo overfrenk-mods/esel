@@ -1,4 +1,4 @@
-// ---------- CODICE CON FIX ALL'ERRORE getSystemService ----------
+// ---------- CODICE CON FIX AL SYNC MANUALE E ALL'ERRORE getSystemService ----------
 package esel.esel.esel;
 
 import android.content.Context;
@@ -99,15 +99,18 @@ public class SettingsFragment extends PreferenceFragmentCompat implements Shared
         if (getActivity() == null) return;
 
         String lastSeenText = SP.getString(EsNotificationListener.KEY_LAST_SEEN_NOTIFICATION_TEXT, "");
-        long lastSeenWhen = SP.getLong(EsNotificationListener.KEY_LAST_SEEN_NOTIFICATION_WHEN, 0L);
 
-        if (lastSeenText.isEmpty() || lastSeenWhen == 0L) {
+        if (lastSeenText.isEmpty()) {
             Toast.makeText(getActivity(), R.string.settings_toast_no_recent_reading, Toast.LENGTH_SHORT).show();
             EselLog.LogE("SettingsFragment", "Sync Manuale fallito: non ci sono dati in cache.");
             return;
         }
 
-        SGV sgvToSend = EsNotificationListener.generateSGVFromText(lastSeenText, lastSeenWhen);
+        // --- FIX CRITICO PER IL SYNC MANUALE ---
+        // Generiamo l'SGV usando il timestamp attuale (System.currentTimeMillis()) invece del vecchio e inaffidabile 'when'.
+        // Questo assicura che il dato venga processato con un orario fresco e non "avveleni" lo stato del DataMonitorService.
+        SGV sgvToSend = EsNotificationListener.generateSGVFromText(lastSeenText, System.currentTimeMillis());
+
         if (sgvToSend == null) {
             Toast.makeText(getActivity(), R.string.settings_toast_processing_error, Toast.LENGTH_SHORT).show();
             EselLog.LogE("SettingsFragment", "Sync Manuale fallito: impossibile generare SGV dal testo: " + lastSeenText);
@@ -162,10 +165,8 @@ public class SettingsFragment extends PreferenceFragmentCompat implements Shared
     private void updateBatteryOptimizationStatus() {
         if (getContext() == null || batteryOptimizationButton == null) return;
 
-        // --- MODIFICA CHE RISOLVE L'ERRORE ---
-        // Dobbiamo prima ottenere il contesto (getContext()) e poi chiamare il metodo.
         PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
-        if (pm == null) return; // Aggiungiamo un controllo di sicurezza extra
+        if (pm == null) return;
 
         boolean isIgnoringOptimizations = pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
 

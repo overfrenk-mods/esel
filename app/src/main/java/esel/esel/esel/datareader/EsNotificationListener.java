@@ -1,4 +1,4 @@
-// ---------- CODICE MODIFICATO SENZA LOGICA DI DEBOUNCE ----------
+// ---------- CODICE CON FIX DEFINITIVO ANTI-TEMPESTA ----------
 package esel.esel.esel.datareader;
 
 import android.app.Notification;
@@ -8,7 +8,10 @@ import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.regex.Matcher;
@@ -25,12 +28,13 @@ public class EsNotificationListener extends NotificationListenerService {
     public static final String KEY_LAST_SEEN_NOTIFICATION_TEXT = "last_seen_notification_text";
     public static final String KEY_LAST_SEEN_NOTIFICATION_WHEN = "last_seen_notification_when";
 
-    // --- RIMOSSA LA LOGICA DI DEBOUNCE DA QUESTA CLASSE ---
-    // private static String lastProcessedText = "";
-    // private static long lastProcessedTimeMs = 0;
-    // private static final long DEBOUNCE_WINDOW_MS = 10000;
-
     private static final Pattern VALUE_PATTERN = Pattern.compile("(?<!\\d:)\\b(\\d+([,.]\\d+)?)\\b(?!:\\d)");
+
+    // --- VARIABILI PER LA NUOVA LOGICA DI DEBOUNCE (ANTI-TEMPESTA) ---
+    private static volatile long lastProcessTimeMs = 0;
+    // Ignora qualsiasi notifica che arrivi entro 15 secondi dalla precedente per bloccare la "tempesta" alla fonte.
+    private static final long NOTIFICATION_COOLDOWN_MS = 15000; // 15 secondi
+
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
@@ -38,6 +42,20 @@ public class EsNotificationListener extends NotificationListenerService {
 
         String packageName = sbn.getPackageName();
         if (packageName == null || !packageName.startsWith("com.senseonics")) return;
+
+        // --- FIX DEFINITIVO ANTI-TEMPESTA ---
+        // Questo blocco ora è la prima cosa che facciamo.
+        // Se arriva una notifica troppo presto dopo l'ultima che abbiamo processato,
+        // la scartiamo immediatamente senza fare altri controlli. Questo blocca la raffica alla fonte.
+        long now = System.currentTimeMillis();
+        if (now - lastProcessTimeMs < NOTIFICATION_COOLDOWN_MS) {
+            EselLog.LogI(TAG, "[DEBOUNCE] Notifica ignorata per cooldown temporale. (" + (now - lastProcessTimeMs) / 1000 + "s < 15s)");
+            return;
+        }
+        // Se la notifica è valida, aggiorniamo subito il timestamp per "chiudere la porta" alle altre che arriveranno nella raffica.
+        lastProcessTimeMs = now;
+        // --- FINE FIX ---
+
 
         Notification notification = sbn.getNotification();
         if (notification == null) return;
@@ -48,21 +66,17 @@ public class EsNotificationListener extends NotificationListenerService {
             return;
         }
 
-        // --- BLOCCO DEBOUNCE RIMOSSO ---
-        // La logica di filtraggio dei duplicati ora è gestita interamente
-        // dal DataMonitorService per evitare conflitti.
-
-        SGV sgv = generateSGVFromText(fullText, notification.when);
+        SGV sgv = generateSGVFromText(fullText, now); // Usiamo 'now' che abbiamo già catturato
         if (sgv == null) {
             EselLog.LogW(TAG, "Nessun valore glicemico valido trovato nel testo: \"" + fullText + "\"");
             return;
         }
 
-        // Salviamo comunque l'ultima notifica per il sync manuale
         SP.putString(KEY_LAST_SEEN_NOTIFICATION_TEXT, fullText);
         SP.putLong(KEY_LAST_SEEN_NOTIFICATION_WHEN, notification.when);
 
-        EselLog.LogI(TAG, "Notifica valida (" + sgv.value + ") catturata. Invio broadcast locale al servizio.");
+        SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
+        EselLog.LogI(TAG, "Notifica valida catturata -> Valore: " + sgv.value + " | Timestamp: " + sdf.format(new Date(sgv.timestamp)) + ". Invio broadcast...");
         Intent serviceIntent = new Intent(ACTION_NEW_SGV_DATA);
         serviceIntent.putExtra(EXTRA_SGV_DATA, sgv);
         LocalBroadcastManager.getInstance(this).sendBroadcast(serviceIntent);
