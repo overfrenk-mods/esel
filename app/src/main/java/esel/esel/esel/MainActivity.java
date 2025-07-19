@@ -1,9 +1,9 @@
-// ---------- CODICE FINALE CON LOGICA SEMPLIFICATA ----------
+// ---------- CODICE FINALE CON IMPORT CORRETTO ----------
 package esel.esel.esel;
 
 import android.Manifest;
 import android.app.PendingIntent;
-import android.content.Context;
+import android.content.Context; // <-- ECCO LA RIGA MANCANTE
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -22,12 +22,19 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.ContextCompat;
+import androidx.work.Constraints;
+import androidx.work.ExistingPeriodicWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.PeriodicWorkRequest;
+import androidx.work.WorkManager;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import esel.esel.esel.receivers.WatchdogReceiver;
+import esel.esel.esel.receivers.WatchdogWorker;
 import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
@@ -35,12 +42,15 @@ import esel.esel.esel.util.SP;
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MainActivity";
+    private static final String WATCHDOG_WORKER_TAG = "watchdog_worker_tag";
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        EselLog.init(this);
 
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
@@ -65,10 +75,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void checkPermissionsAndStartService() {
         if (areAllPermissionsGranted() && SP.getBoolean("enable_service", true)) {
-            EselLog.LogI(TAG, "Permessi OK e servizio abilitato. Avvio il DataMonitorService...");
+            EselLog.LogR(TAG, "Permessi OK e servizio abilitato. Avvio il DataMonitorService...");
             ContextCompat.startForegroundService(this, new Intent(this, DataMonitorService.class));
-            // --- MODIFICA: La responsabilità di avviare il Watchdog è stata spostata al servizio stesso ---
-            // scheduleWatchdogAlarm(); // <-- RIGA RIMOSSA
+            scheduleRedundantWatchdog();
         } else if (!areAllPermissionsGranted()) {
             EselLog.LogW(TAG, "Permessi mancanti. Avvio la procedura di richiesta.");
             requestMissingPermissions();
@@ -77,22 +86,25 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Il metodo scheduleWatchdogAlarm() può essere rimosso completamente in una pulizia futura,
-    // per ora lo lasciamo per evitare di rompere altri riferimenti.
-    private void scheduleWatchdogAlarm() {
-        Intent intent = new Intent(this, WatchdogReceiver.class);
-        boolean isAlarmUp = (PendingIntent.getBroadcast(this, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE) != null);
+    private void scheduleRedundantWatchdog() {
+        Constraints constraints = new Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build();
 
-        if (isAlarmUp) {
-            EselLog.LogI(TAG, "La catena di allarmi Watchdog è già attiva.");
-            return;
-        }
+        PeriodicWorkRequest watchdogWorkRequest =
+                new PeriodicWorkRequest.Builder(WatchdogWorker.class, 15, TimeUnit.MINUTES)
+                        .setConstraints(constraints)
+                        .addTag(WATCHDOG_WORKER_TAG)
+                        .build();
 
-        handler.postDelayed(() -> {
-            EselLog.LogW(TAG, "Nessun allarme Watchdog trovato. AVVIO LA CATENA DI ALLARMI ESATTI con ritardo.");
-            WatchdogReceiver.scheduleNextWatchdog(this);
-        }, 2000); // Ritardo di 2 secondi
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                WATCHDOG_WORKER_TAG,
+                ExistingPeriodicWorkPolicy.KEEP,
+                watchdogWorkRequest);
+
+        EselLog.LogW(TAG, "Pattuglia di riserva (WorkManager) attivata e schedulata.");
     }
+
 
     private String[] getRequiredPermissions() {
         List<String> permissions = new ArrayList<>();

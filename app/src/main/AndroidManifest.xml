@@ -40,9 +40,10 @@
 
         <activity android:name=".GraphActivity" android:theme="@style/AppTheme"/>
 
-        <receiver android:name=".receivers.AutostartReceiver" android:enabled="true" android:exported="true">
+        <receiver android:name=".receivers.AutostartReceiver" android:enabled="true" android:exported="false">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
         </receiver>
+
         <receiver android:name=".receivers.AppUpdateReceiver" android:enabled="true" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
         </receiver>

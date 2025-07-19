@@ -1,24 +1,32 @@
-// ---------------- INIZIO CODICE PER EselLog.java ----------------
+// ---------------- INIZIO CODICE PER EselLog.java CON LogR ----------------
 package esel.esel.esel.util;
 
 import android.content.Context;
 import android.util.Log;
 
-import esel.esel.esel.AppLogger; // MODIFICA: Importiamo il nuovo AppLogger
+import esel.esel.esel.AppLogger;
 
 public class EselLog {
 
-    private static Context appContext; // MODIFICA: Aggiunto per "ricordare" il contesto dell'app
+    private static Context appContext;
 
-    /**
-     * MODIFICA: Questo nuovo metodo va chiamato una sola volta all'avvio dell'app.
-     * Serve per dare al nostro logger il contesto necessario per funzionare.
-     */
     public static void init(Context context) {
         appContext = context.getApplicationContext();
-        // Inizializziamo subito il nostro logger, così è pronto all'uso
         AppLogger.getInstance(appContext);
     }
+
+    // --- NUOVO METODO PER LOGGARE I RIAVVII ---
+    public static void LogR(String tag, String value){
+        String type = "RESTART"; // Un tipo specifico per identificare i riavvii
+        Log.e(tag, "RESTART: " + value); // Lo logghiamo come Errore in Logcat per massima visibilità
+
+        if (appContext != null) {
+            AppLogger.getInstance(appContext).add(type, tag, value);
+        } else {
+            Log.e("EselLog", "Logger non inizializzato! Chiamare EselLog.init() all'avvio dell'app.");
+        }
+    }
+    // --- FINE NUOVO METODO ---
 
     public static void LogI(String tag, String value, boolean toast) {
         if(toast) {
@@ -28,10 +36,9 @@ public class EselLog {
     }
 
     public static void LogI(String tag, String value){
-        String type = "Info"; // Tolto lo spazio, più pulito
-        Log.i(tag, value); // MODIFICA: Usiamo Log.i per Info, per coerenza in Logcat
+        String type = "Info";
+        Log.i(tag, value);
 
-        // MODIFICA: Sostituita la vecchia chiamata con il nuovo AppLogger
         if (appContext != null) {
             AppLogger.getInstance(appContext).add(type, tag, value);
         } else {
@@ -48,9 +55,8 @@ public class EselLog {
 
     public static void LogE(String tag, String value){
         String type = "Error";
-        Log.e(tag, value); // MODIFICA: Usiamo Log.e per Error
+        Log.e(tag, value);
 
-        // MODIFICA: Sostituita la vecchia chiamata con il nuovo AppLogger
         if (appContext != null) {
             AppLogger.getInstance(appContext).add(type, tag, value);
         } else {
@@ -67,9 +73,8 @@ public class EselLog {
 
     public static void LogW(String tag, String value){
         String type = "Warning";
-        Log.w(tag, value); // MODIFICA: Usiamo Log.w per Warning
+        Log.w(tag, value);
 
-        // MODIFICA: Sostituita la vecchia chiamata con il nuovo AppLogger
         if (appContext != null) {
             AppLogger.getInstance(appContext).add(type, tag, value);
         } else {
@@ -87,8 +92,6 @@ public class EselLog {
     public static void LogV(String tag, String value){
         String type = "Message";
         Log.v(tag,value);
-        // MODIFICA: Rispettiamo la scelta originale di non salvare i log "Verbose" (V) nel file.
-        // Quindi qui non aggiungiamo la chiamata al nostro AppLogger.
     }
 }
 // ---------------- FINE CODICE PER EselLog.java ----------------

@@ -1,4 +1,4 @@
-// ---------- CODICE CON LOGICA DEFINITIVA "SYNC INTELLIGENTE" v2 ----------
+// ---------- CODICE CON "SYNC INTELLIGENTE" v4 (FIX SUL TRIGGER) E HEARTBEAT ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -66,10 +66,11 @@ public class DataMonitorService extends Service {
 
     private static final long TIMESTAMP_COOLDOWN_MS = (5 * 60 * 1000L) - 30000L; // 4 minuti e 30 secondi
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
-    private static final long LAG_THRESHOLD_MS = 60 * 1000L; // **Soglia Resync abbassata a 60 secondi**
+    private static final long MIN_TIME_BETWEEN_SENDS_MS = 2 * 60 * 1000L;
+    private static final long RESYNC_DELAY_THRESHOLD_MS = 3 * 60 * 1000L; // Soglia di ritardo per attivare il sync: 3 minuti
     private static final int MAX_RESYNCS_PER_HOUR = 2;
     private static final long ONE_HOUR_MS = 60 * 60 * 1000L;
-    private static final long MIN_TIME_BETWEEN_SENDS_MS = 2 * 60 * 1000L;
+    private static final long HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000L;
 
 
     private ExecutorService executor;
@@ -77,10 +78,11 @@ public class DataMonitorService extends Service {
     private PowerManager.WakeLock wakeLock;
     private Gson gson;
 
-    // --- LOGICA "SALA D'ATTESA" E "SYNC INTELLIGENTE" ---
     private final AtomicReference<SGV> datoInAttesa = new AtomicReference<>(null);
     private Handler delayedSendHandler;
     private Runnable delayedSendRunnable;
+    private Handler heartbeatHandler;
+    private Runnable heartbeatRunnable;
 
     public static class SgvHistoryPoint {
         public long timestamp;
@@ -99,6 +101,7 @@ public class DataMonitorService extends Service {
         executor = Executors.newSingleThreadExecutor();
         gson = new Gson();
         delayedSendHandler = new Handler(Looper.getMainLooper());
+        heartbeatHandler = new Handler(Looper.getMainLooper());
 
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "EselReader::DataProcessingWakeLock");
@@ -106,6 +109,7 @@ public class DataMonitorService extends Service {
         createNotificationChannel();
         setupSgvDataReceiver();
         WatchdogReceiver.scheduleNextWatchdog(this);
+        startHeartbeat();
 
         SP.putBoolean("service_should_be_running", true);
         Notification notification = buildNotification(getString(R.string.notification_persistent_text_waiting));
@@ -175,27 +179,25 @@ public class DataMonitorService extends Service {
             return;
         }
 
-        SGV waitingSgv = datoInAttesa.get();
-        if (waitingSgv == null) return;
+        if (datoInAttesa.get() == null) return;
 
         long lastSuccessfulSendTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
         long timeSinceLastSend = System.currentTimeMillis() - lastSuccessfulSendTimestamp;
 
-        // --- LOGICA SYNC INTELLIGENTE ---
-        long lag = System.currentTimeMillis() - waitingSgv.timestamp;
-        if (lag > LAG_THRESHOLD_MS && timeSinceLastSend > MIN_TIME_BETWEEN_SENDS_MS && canPerformResync()) {
-            EselLog.LogW(TAG, "Rilevato ritardo di " + (lag / 1000) + "s. TENTO UN SYNC INTELLIGENTE!");
+        long delay = Math.max(0, TIMESTAMP_COOLDOWN_MS - timeSinceLastSend);
+
+        if (delay > RESYNC_DELAY_THRESHOLD_MS && timeSinceLastSend > MIN_TIME_BETWEEN_SENDS_MS && canPerformResync()) {
+            EselLog.LogW(TAG, "Ritardo accumulato significativo (" + (delay / 1000) + "s > " + (RESYNC_DELAY_THRESHOLD_MS / 1000) + "s). TENTO UN SYNC INTELLIGENTE!");
             incrementResyncCount();
             sendWaitingSgv();
             return;
         }
-        // --- FINE LOGICA SYNC INTELLIGENTE ---
 
-        long delay = Math.max(0, TIMESTAMP_COOLDOWN_MS - timeSinceLastSend);
         EselLog.LogI(TAG, "Programmo invio del dato in attesa tra " + (delay / 1000) + " secondi.");
         delayedSendRunnable = this::sendWaitingSgv;
         delayedSendHandler.postDelayed(delayedSendRunnable, delay);
     }
+
 
     private void sendWaitingSgv() {
         SGV sgvToSend = datoInAttesa.getAndSet(null);
@@ -245,7 +247,6 @@ public class DataMonitorService extends Service {
             EselLog.LogW(TAG, "WakeLock acquisito per l'elaborazione dei dati.");
         }
         try {
-            // **FIX**: Svuota la sala d'attesa e annulla i timer ogni volta che un invio va a buon fine.
             cancelDelayedSend();
 
             if (isManualOverride) {
@@ -304,6 +305,26 @@ public class DataMonitorService extends Service {
         }
     }
 
+    private void startHeartbeat() {
+        heartbeatRunnable = new Runnable() {
+            @Override
+            public void run() {
+                EselLog.LogI(TAG, "Heartbeat check... Service is alive.");
+                heartbeatHandler.postDelayed(this, HEARTBEAT_INTERVAL_MS);
+            }
+        };
+        heartbeatHandler.post(heartbeatRunnable);
+        EselLog.LogW(TAG, "Heartbeat di sopravvivenza avviato. Controllo ogni 2 minuti.");
+    }
+
+    private void stopHeartbeat() {
+        if (heartbeatHandler != null && heartbeatRunnable != null) {
+            heartbeatHandler.removeCallbacks(heartbeatRunnable);
+            EselLog.LogW(TAG, "Heartbeat di sopravvivenza fermato.");
+        }
+    }
+
+
     private void updateSgvHistory(SGV newSgv) {
         try {
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
@@ -336,6 +357,7 @@ public class DataMonitorService extends Service {
         SP.putBoolean("service_should_be_running", false);
         SP.putBoolean("enable_service", false);
         cancelDelayedSend();
+        stopHeartbeat();
         WatchdogReceiver.cancelWatchdog(this);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE);
@@ -363,6 +385,7 @@ public class DataMonitorService extends Service {
     public void onDestroy() {
         super.onDestroy();
         EselLog.LogW(TAG, "DataMonitorService onDestroy.");
+        stopHeartbeat();
         if (sgvDataReceiver != null) {
             LocalBroadcastManager.getInstance(this).unregisterReceiver(sgvDataReceiver);
         }
