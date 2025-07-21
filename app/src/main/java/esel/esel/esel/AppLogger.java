@@ -1,4 +1,4 @@
-// ---------------- CODICE CON LOGICA DI SCRITTURA CORRETTA E DEFINITIVA ----------------
+// ---------- CODICE CON LOGICA DI SCRITTURA E TRONCAMENTO DEFINITIVI ----------
 package esel.esel.esel;
 
 import android.content.Context;
@@ -58,28 +58,26 @@ public class AppLogger {
             try {
                 LocalDateTime currentTime = LocalDateTime.now();
                 DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
                 String threadName = Thread.currentThread().getName();
                 String formattedLine = String.format("%s: [%s] [%s] %s: %s", currentTime.format(format), type, threadName, tag, value);
 
-                int maxLogLines = getMaxLogLinesFromPrefs();
+                // --- NUOVA LOGICA DI SCRITTURA SICURA ---
+                // Aggiungiamo solo la nuova riga e forziamo il salvataggio immediato su disco.
+                appendLineToFile(formattedLine);
 
-                List<String> currentLogs;
+                // Aggiorniamo la lista in memoria per l'interfaccia utente
+                List<String> currentUiLogs;
                 synchronized (logLines) {
                     logLines.add(0, formattedLine);
-                    // Applica il troncamento se si supera il limite
-                    if (logLines.size() > maxLogLines) {
+                    int maxLogLines = getMaxLogLinesFromPrefs();
+                    while (logLines.size() > maxLogLines) {
                         logLines.remove(logLines.size() - 1);
                     }
-                    currentLogs = new ArrayList<>(logLines);
+                    currentUiLogs = new ArrayList<>(logLines);
                 }
 
-                // Notifica l'UI
-                logsLiveData.postValue(currentLogs);
-
-                // --- FIX: Riscrive l'intero file con la lista aggiornata e troncata ---
-                // In questo modo il file su disco rispetta sempre il limite.
-                writeLogsToFile(currentLogs);
+                // Notifichiamo l'UI
+                logsLiveData.postValue(currentUiLogs);
 
             } catch (Exception e) {
                 Log.e(TAG, "Errore durante l'aggiunta del log", e);
@@ -108,50 +106,46 @@ public class AppLogger {
                 Log.e(TAG, "Errore durante la lettura del file di log", e);
             }
 
+            // --- NUOVA LOGICA DI TRONCAMENTO ALL'AVVIO ---
+            // Se il file è più grande del limite, lo tronchiamo e lo riscriviamo.
             int maxLogLines = getMaxLogLinesFromPrefs();
             if (tempLines.size() > maxLogLines) {
+                Log.w(TAG, "File di log troppo grande (" + tempLines.size() + " righe). Troncamento a " + maxLogLines + " righe.");
                 int excess = tempLines.size() - maxLogLines;
                 tempLines = tempLines.subList(excess, tempLines.size());
-                // Riscrive il file troncato per tenerlo pulito alla dimensione corretta
-                writeLogsToFile(tempLines);
+                writeFullFile(tempLines); // Riscrive il file troncato
             }
 
             synchronized (logLines) {
                 logLines.clear();
                 logLines.addAll(tempLines);
-                // Il file viene letto dal più vecchio al più nuovo,
-                // ma noi vogliamo visualizzare i più recenti in cima.
-                Collections.reverse(logLines);
+                Collections.reverse(logLines); // Visualizza i più recenti in cima
             }
             logsLiveData.postValue(new ArrayList<>(logLines));
         });
     }
 
-    private void writeLogsToFile(List<String> linesToWrite) {
-        // Cloniamo la lista per evitare problemi di concorrenza durante la scrittura
-        List<String> linesToPersist = new ArrayList<>(linesToWrite);
-        // La visualizzazione è invertita (nuovi in cima), ma su disco salviamo in ordine cronologico.
-        Collections.reverse(linesToPersist);
+    // Metodo per aggiungere una singola riga in modo sicuro
+    private void appendLineToFile(String line) {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(logFile, true))) { // true per APPEND
+            writer.println(line);
+            writer.flush(); // Forza il salvataggio immediato su disco
+        } catch (IOException e) {
+            Log.e(TAG, "Errore durante la scrittura su file di log", e);
+        }
+    }
 
-        try (PrintWriter writer = new PrintWriter(new FileWriter(logFile, false))) { // false per sovrascrivere
-            for (String line : linesToPersist) {
+    // Metodo per riscrivere l'intero file, usato solo per il troncamento
+    private void writeFullFile(List<String> linesToWrite) {
+        try (PrintWriter writer = new PrintWriter(new FileWriter(logFile, false))) { // false per SOVRASCRIVERE
+            for (String line : linesToWrite) {
                 writer.println(line);
             }
+            writer.flush();
         } catch (IOException e) {
-            Log.e(TAG, "Errore durante la riscrittura del file di log", e);
+            Log.e(TAG, "Errore durante la riscrittura del file di log troncato", e);
         }
     }
-
-    // Il metodo appendLineToFile non è più necessario con la nuova logica
-    /*
-    private void appendLineToFile(String line) {
-        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(logFile, true)))) {
-            writer.println(line);
-        } catch (IOException e) {
-            Log.e(TAG, "Errore durante l'append del log su file", e);
-        }
-    }
-    */
 
     public void clearLogs() {
         executor.execute(() -> {
@@ -159,21 +153,21 @@ public class AppLogger {
                 logLines.clear();
             }
             if (logFile.exists()) {
-                logFile.delete();
+                if (logFile.delete()) {
+                    Log.w(TAG, "File di log eliminato con successo.");
+                } else {
+                    Log.e(TAG, "Impossibile eliminare il file di log.");
+                }
             }
             logsLiveData.postValue(new ArrayList<>());
-            Log.w(TAG, "Log pulito dall'utente.");
         });
     }
 
     private int getMaxLogLinesFromPrefs() {
         try {
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(appContext);
-            // Legge il valore come stringa e lo converte in intero.
-            // --- VALORE DI DEFAULT AGGIORNATO A 1000 ---
             return Integer.parseInt(prefs.getString("log_max_lines", "1000"));
-        } catch (NumberFormatException e) {
-            // Se l'utente inserisce un valore non valido (es. testo), usa il default
+        } catch (Exception e) {
             return 1000;
         }
     }
