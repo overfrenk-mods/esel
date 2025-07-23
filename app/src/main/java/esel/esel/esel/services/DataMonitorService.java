@@ -1,4 +1,4 @@
-// ---------- CODICE CON "SYNC INTELLIGENTE" v4 (FIX SUL TRIGGER) E HEARTBEAT ----------
+// ---------- CODICE CON LOGICA SEMPLIFICATA E TREND CORRETTO (v5 FINALE) ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -36,7 +36,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicReference;
 
 import esel.esel.esel.MainActivity;
 import esel.esel.esel.R;
@@ -61,26 +60,16 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_RAW_VALUE = "status_last_sgv_raw_value";
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
-    public static final String KEY_RESYNC_COUNT = "resync_count";
-    public static final String KEY_RESYNC_WINDOW_START_MS = "resync_window_start_ms";
 
     private static final long TIMESTAMP_COOLDOWN_MS = (5 * 60 * 1000L) - 30000L; // 4 minuti e 30 secondi
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
-    private static final long MIN_TIME_BETWEEN_SENDS_MS = 2 * 60 * 1000L;
-    private static final long RESYNC_DELAY_THRESHOLD_MS = 3 * 60 * 1000L; // Soglia di ritardo per attivare il sync: 3 minuti
-    private static final int MAX_RESYNCS_PER_HOUR = 2;
-    private static final long ONE_HOUR_MS = 60 * 60 * 1000L;
     private static final long HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000L;
-
 
     private ExecutorService executor;
     private BroadcastReceiver sgvDataReceiver;
     private PowerManager.WakeLock wakeLock;
     private Gson gson;
 
-    private final AtomicReference<SGV> datoInAttesa = new AtomicReference<>(null);
-    private Handler delayedSendHandler;
-    private Runnable delayedSendRunnable;
     private Handler heartbeatHandler;
     private Runnable heartbeatRunnable;
 
@@ -100,7 +89,6 @@ public class DataMonitorService extends Service {
         EselLog.LogI(TAG, "DataMonitorService onCreate.");
         executor = Executors.newSingleThreadExecutor();
         gson = new Gson();
-        delayedSendHandler = new Handler(Looper.getMainLooper());
         heartbeatHandler = new Handler(Looper.getMainLooper());
 
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
@@ -123,18 +111,17 @@ public class DataMonitorService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
-            String action = intent.getAction();
-            if (ACTION_STOP_SERVICE.equals(action)) {
+            if (ACTION_STOP_SERVICE.equals(intent.getAction())) {
                 EselLog.LogW(TAG, "Azione STOP ricevuta. Termino volontariamente il servizio.");
                 stopSelfService();
                 return START_NOT_STICKY;
             }
-            if (ACTION_MANUAL_SYNC.equals(action)) {
+            if (ACTION_MANUAL_SYNC.equals(intent.getAction())) {
                 EselLog.LogW(TAG, "RICEVUTO COMANDO DI SYNC MANUALE!");
                 if (intent.hasExtra(EsNotificationListener.EXTRA_SGV_DATA)) {
                     final SGV sgv = (SGV) intent.getSerializableExtra(EsNotificationListener.EXTRA_SGV_DATA);
                     if (sgv != null) {
-                        executor.execute(() -> sendSgv(sgv, true));
+                        executor.execute(() -> processSgv(sgv, true));
                     }
                 }
             }
@@ -149,7 +136,7 @@ public class DataMonitorService extends Service {
                 if (intent != null && intent.hasExtra(EsNotificationListener.EXTRA_SGV_DATA)) {
                     final SGV sgv = (SGV) intent.getSerializableExtra(EsNotificationListener.EXTRA_SGV_DATA);
                     if (sgv != null) {
-                        executor.execute(() -> processSgv(sgv));
+                        executor.execute(() -> processSgv(sgv, false));
                     }
                 }
             }
@@ -158,126 +145,38 @@ public class DataMonitorService extends Service {
         LocalBroadcastManager.getInstance(this).registerReceiver(sgvDataReceiver, filter);
     }
 
-    private void processSgv(SGV sgv) {
-        long lastSuccessfulSendTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
-        long timeSinceLastSend = (lastSuccessfulSendTimestamp > 0) ? sgv.timestamp - lastSuccessfulSendTimestamp : Long.MAX_VALUE;
-
-        if (timeSinceLastSend >= TIMESTAMP_COOLDOWN_MS) {
-            EselLog.LogI(TAG, "Cooldown superato. Invio immediato del dato: " + sgv.value);
-            cancelDelayedSend();
-            sendSgv(sgv, false);
-        } else {
-            datoInAttesa.set(sgv);
-            EselLog.LogI(TAG, "Cooldown attivo. Messo in sala d'attesa: " + sgv.value);
-            scheduleOrCheckIntelligentSend();
-        }
-    }
-
-    private void scheduleOrCheckIntelligentSend() {
-        if (delayedSendRunnable != null) {
-            EselLog.LogI(TAG, "Invio ritardato già in programma. Aggiornato solo il dato in attesa.");
-            return;
-        }
-
-        if (datoInAttesa.get() == null) return;
-
-        long lastSuccessfulSendTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
-        long timeSinceLastSend = System.currentTimeMillis() - lastSuccessfulSendTimestamp;
-
-        long delay = Math.max(0, TIMESTAMP_COOLDOWN_MS - timeSinceLastSend);
-
-        if (delay > RESYNC_DELAY_THRESHOLD_MS && timeSinceLastSend > MIN_TIME_BETWEEN_SENDS_MS && canPerformResync()) {
-            EselLog.LogW(TAG, "Ritardo accumulato significativo (" + (delay / 1000) + "s > " + (RESYNC_DELAY_THRESHOLD_MS / 1000) + "s). TENTO UN SYNC INTELLIGENTE!");
-            incrementResyncCount();
-            sendWaitingSgv();
-            return;
-        }
-
-        EselLog.LogI(TAG, "Programmo invio del dato in attesa tra " + (delay / 1000) + " secondi.");
-        delayedSendRunnable = this::sendWaitingSgv;
-        delayedSendHandler.postDelayed(delayedSendRunnable, delay);
-    }
-
-
-    private void sendWaitingSgv() {
-        SGV sgvToSend = datoInAttesa.getAndSet(null);
-        delayedSendRunnable = null;
-        if (sgvToSend != null) {
-            EselLog.LogI(TAG, "Timer scaduto. Invio dato dalla sala d'attesa: " + sgvToSend.value);
-            sendSgv(sgvToSend, false);
-        } else {
-            EselLog.LogW(TAG, "Timer scaduto, ma la sala d'attesa era vuota.");
-        }
-    }
-
-    private void cancelDelayedSend() {
-        if (delayedSendRunnable != null) {
-            EselLog.LogW(TAG, "Annullato invio ritardato.");
-            delayedSendHandler.removeCallbacks(delayedSendRunnable);
-            delayedSendRunnable = null;
-        }
-        datoInAttesa.set(null);
-    }
-
-    private boolean canPerformResync() {
-        long now = System.currentTimeMillis();
-        long windowStart = SP.getLong(KEY_RESYNC_WINDOW_START_MS, 0L);
-        int count = SP.getInt(KEY_RESYNC_COUNT, 0);
-
-        if (windowStart == 0L || now - windowStart > ONE_HOUR_MS) {
-            EselLog.LogI(TAG, "Finestra di resync scaduta o nuova. Resetto il contatore.");
-            SP.putInt(KEY_RESYNC_COUNT, 0);
-            SP.putLong(KEY_RESYNC_WINDOW_START_MS, now);
-            return true;
-        }
-
-        return count < MAX_RESYNCS_PER_HOUR;
-    }
-
-    private void incrementResyncCount() {
-        int count = SP.getInt(KEY_RESYNC_COUNT, 0);
-        SP.putInt(KEY_RESYNC_COUNT, count + 1);
-        EselLog.LogW(TAG, "Conteggio resync nell'ora corrente: " + (count + 1) + "/" + MAX_RESYNCS_PER_HOUR);
-    }
-
-
-    private void sendSgv(SGV sgv, boolean isManualOverride) {
+    private void processSgv(SGV sgv, boolean isManualOverride) {
         if (wakeLock != null && !wakeLock.isHeld()) {
             wakeLock.acquire(20 * 1000L);
             EselLog.LogW(TAG, "WakeLock acquisito per l'elaborazione dei dati.");
         }
         try {
-            cancelDelayedSend();
-
-            if (isManualOverride) {
-                EselLog.LogW(TAG, "SYNC MANUALE: Invio forzato.");
-            }
-
             long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
-            if (lastSgvTimestamp > 0 && (sgv.timestamp - lastSgvTimestamp) > LONG_PAUSE_THRESHOLD_MS) {
-                EselLog.LogW(TAG, "Rilevata lunga pausa di " + ((sgv.timestamp - lastSgvTimestamp) / 60000) + " min. Resetto stato pendenza.");
-                lastSgvTimestamp = 0;
-            }
 
-            int lastSentRawValue = SP.getInt(KEY_LAST_SGV_RAW_VALUE, -1);
-            int lastSentFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
+            if (!isManualOverride) {
+                long timeSinceLastSgv = sgv.timestamp - lastSgvTimestamp;
 
-            SGV sgvForSlope = new SGV(sgv.raw, sgv.timestamp, 0);
-            boolean smoothing_enabled = SP.getBoolean("smooth_data", false);
-            if (smoothing_enabled && lastSentRawValue != -1) {
-                sgvForSlope.smooth(lastSentRawValue);
-            }
-
-            double slopeByMinute = 0d;
-            if (lastSgvTimestamp > 0) {
-                long timeDiff = sgv.timestamp - lastSgvTimestamp;
-                if (timeDiff > 0) {
-                    slopeByMinute = (double) (sgvForSlope.value - lastSentFinalValue) * 60000.0d / (double) timeDiff;
-                    sgv.setDirection(slopeByMinute);
+                // Gestione Pausa Lunga (es. ricarica)
+                if (lastSgvTimestamp > 0 && timeSinceLastSgv > LONG_PAUSE_THRESHOLD_MS) {
+                    EselLog.LogW(TAG, "Rilevata lunga pausa di " + (timeSinceLastSgv / 60000) + " min. Resetto stato pendenza.");
+                    SP.putLong(KEY_LAST_SGV_TIMESTAMP, 0L);
+                    SP.putInt(KEY_LAST_SGV_RAW_VALUE, -1);
+                    SP.putInt(KEY_LAST_SGV_FINAL_VALUE, -1);
                 }
+                // Filtro Cooldown Semplificato
+                else if (lastSgvTimestamp > 0 && timeSinceLastSgv < TIMESTAMP_COOLDOWN_MS) {
+                    EselLog.LogI(TAG, "[FILTRO] Dato scartato per cooldown. Intervallo: " + (timeSinceLastSgv / 1000) + "s < " + (TIMESTAMP_COOLDOWN_MS / 1000) + "s");
+                    return;
+                }
+            } else {
+                EselLog.LogW(TAG, "SYNC MANUALE: Filtri temporali bypassati.");
             }
 
-            sgv.value = sgv.raw;
+            EselLog.LogI(TAG, "SGV(" + sgv.value + ") ha superato i filtri. Inizio elaborazione.");
+
+            calculateTrend(sgv); // Calcola e assegna il trend
+
+            sgv.value = sgv.raw; // Assicura che il valore inviato sia sempre quello grezzo
             EselLog.LogI(TAG, "Pronto per invio: Valore=" + sgv.value + " (Grezzo=" + sgv.raw + ") | Direzione=" + sgv.direction);
 
             if (SP.getBoolean("send_to_AAPS", true)) { AapsSender.sendToAaps(getApplicationContext(), sgv); }
@@ -289,6 +188,7 @@ public class DataMonitorService extends Service {
             SP.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.raw);
 
             updateSgvHistory(sgv);
+
             DateFormat df = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
             String trendArrow = getTrendArrow(sgv.direction);
             String formattedTime = df.format(new Date(sgv.timestamp));
@@ -296,7 +196,7 @@ public class DataMonitorService extends Service {
             updateNotification(notificationText);
 
         } catch (Throwable t) {
-            android.util.Log.e(TAG, "Errore critico durante l'invio del SGV:", t);
+            android.util.Log.e(TAG, "Errore critico durante il processamento del SGV:", t);
         } finally {
             if (wakeLock != null && wakeLock.isHeld()) {
                 wakeLock.release();
@@ -304,6 +204,43 @@ public class DataMonitorService extends Service {
             }
         }
     }
+
+    private void calculateTrend(SGV sgv) {
+        long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
+        int lastSentFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
+
+        if (lastSgvTimestamp <= 0 || lastSentFinalValue == -1) {
+            sgv.direction = "Flat"; // Nessun dato precedente, trend piatto di default
+            return;
+        }
+
+        long timeDiff = sgv.timestamp - lastSgvTimestamp;
+        if (timeDiff <= 0) {
+            sgv.direction = "Flat"; // Dati anomali, trend piatto
+            return;
+        }
+
+        int valueDiff = sgv.raw - lastSentFinalValue;
+        double slopeByMinute = (double) valueDiff * 60000.0d / (double) timeDiff;
+
+        // --- NUOVE SOGLIE DI TREND ALLINEATE ALLO STANDARD ---
+        if (slopeByMinute <= -3.5) {
+            sgv.direction = "DoubleDown";
+        } else if (slopeByMinute <= -2) {
+            sgv.direction = "SingleDown";
+        } else if (slopeByMinute <= -1) {
+            sgv.direction = "FortyFiveDown";
+        } else if (slopeByMinute < 1) {
+            sgv.direction = "Flat";
+        } else if (slopeByMinute < 2) {
+            sgv.direction = "FortyFiveUp";
+        } else if (slopeByMinute < 3.5) {
+            sgv.direction = "SingleUp";
+        } else {
+            sgv.direction = "DoubleUp";
+        }
+    }
+
 
     private void startHeartbeat() {
         heartbeatRunnable = new Runnable() {
@@ -356,7 +293,6 @@ public class DataMonitorService extends Service {
         EselLog.LogW(TAG, "Inizio procedura di arresto volontario del servizio.");
         SP.putBoolean("service_should_be_running", false);
         SP.putBoolean("enable_service", false);
-        cancelDelayedSend();
         stopHeartbeat();
         WatchdogReceiver.cancelWatchdog(this);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -391,9 +327,6 @@ public class DataMonitorService extends Service {
         }
         if (executor != null) {
             executor.shutdown();
-        }
-        if (delayedSendHandler != null && delayedSendRunnable != null) {
-            delayedSendHandler.removeCallbacks(delayedSendRunnable);
         }
         if (SP.getBoolean("service_should_be_running", false)) {
             EselLog.LogW(TAG, "Distruzione non volontaria. Invio broadcast per il riavvio...");
