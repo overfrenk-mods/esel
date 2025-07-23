@@ -1,4 +1,4 @@
-// ---------- CODICE CON LOGICA SEMPLIFICATA E TREND CORRETTO (v5 FINALE) ----------
+// ---------- CODICE CON LOGICA SEMPLIFICATA E TREND CORRETTO (v6) ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -156,14 +156,12 @@ public class DataMonitorService extends Service {
             if (!isManualOverride) {
                 long timeSinceLastSgv = sgv.timestamp - lastSgvTimestamp;
 
-                // Gestione Pausa Lunga (es. ricarica)
                 if (lastSgvTimestamp > 0 && timeSinceLastSgv > LONG_PAUSE_THRESHOLD_MS) {
                     EselLog.LogW(TAG, "Rilevata lunga pausa di " + (timeSinceLastSgv / 60000) + " min. Resetto stato pendenza.");
                     SP.putLong(KEY_LAST_SGV_TIMESTAMP, 0L);
                     SP.putInt(KEY_LAST_SGV_RAW_VALUE, -1);
                     SP.putInt(KEY_LAST_SGV_FINAL_VALUE, -1);
                 }
-                // Filtro Cooldown Semplificato
                 else if (lastSgvTimestamp > 0 && timeSinceLastSgv < TIMESTAMP_COOLDOWN_MS) {
                     EselLog.LogI(TAG, "[FILTRO] Dato scartato per cooldown. Intervallo: " + (timeSinceLastSgv / 1000) + "s < " + (TIMESTAMP_COOLDOWN_MS / 1000) + "s");
                     return;
@@ -174,9 +172,9 @@ public class DataMonitorService extends Service {
 
             EselLog.LogI(TAG, "SGV(" + sgv.value + ") ha superato i filtri. Inizio elaborazione.");
 
-            calculateTrend(sgv); // Calcola e assegna il trend
+            calculateTrend(sgv);
 
-            sgv.value = sgv.raw; // Assicura che il valore inviato sia sempre quello grezzo
+            sgv.value = sgv.raw;
             EselLog.LogI(TAG, "Pronto per invio: Valore=" + sgv.value + " (Grezzo=" + sgv.raw + ") | Direzione=" + sgv.direction);
 
             if (SP.getBoolean("send_to_AAPS", true)) { AapsSender.sendToAaps(getApplicationContext(), sgv); }
@@ -207,32 +205,38 @@ public class DataMonitorService extends Service {
 
     private void calculateTrend(SGV sgv) {
         long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
+        int lastSentRawValue = SP.getInt(KEY_LAST_SGV_RAW_VALUE, -1);
         int lastSentFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
 
         if (lastSgvTimestamp <= 0 || lastSentFinalValue == -1) {
-            sgv.direction = "Flat"; // Nessun dato precedente, trend piatto di default
+            sgv.direction = "Flat";
             return;
         }
 
         long timeDiff = sgv.timestamp - lastSgvTimestamp;
         if (timeDiff <= 0) {
-            sgv.direction = "Flat"; // Dati anomali, trend piatto
+            sgv.direction = "Flat";
             return;
         }
 
-        int valueDiff = sgv.raw - lastSentFinalValue;
-        double slopeByMinute = (double) valueDiff * 60000.0d / (double) timeDiff;
+        SGV sgvForSlope = new SGV(sgv.raw, sgv.timestamp, 0);
+        boolean smoothing_enabled = SP.getBoolean("smooth_data", false);
+        if (smoothing_enabled && lastSentRawValue != -1) {
+            sgvForSlope.smooth(lastSentRawValue);
+        }
 
-        // --- NUOVE SOGLIE DI TREND ALLINEATE ALLO STANDARD ---
+        double slopeByMinute = (double) (sgvForSlope.value - lastSentFinalValue) * 60000.0d / (double) timeDiff;
+
+        // --- FIX: SOGLIE DI TREND ALLINEATE ALLO STANDARD XDrip+/AAPS ---
         if (slopeByMinute <= -3.5) {
             sgv.direction = "DoubleDown";
-        } else if (slopeByMinute <= -2) {
+        } else if (slopeByMinute <= -2.0) {
             sgv.direction = "SingleDown";
-        } else if (slopeByMinute <= -1) {
+        } else if (slopeByMinute <= -1.0) {
             sgv.direction = "FortyFiveDown";
-        } else if (slopeByMinute < 1) {
+        } else if (slopeByMinute < 1.0) {
             sgv.direction = "Flat";
-        } else if (slopeByMinute < 2) {
+        } else if (slopeByMinute < 2.0) {
             sgv.direction = "FortyFiveUp";
         } else if (slopeByMinute < 3.5) {
             sgv.direction = "SingleUp";

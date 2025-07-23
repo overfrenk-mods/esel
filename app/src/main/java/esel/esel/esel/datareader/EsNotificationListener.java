@@ -1,4 +1,4 @@
-// ---------- CODICE CON FIX DEFINITIVO ANTI-TEMPESTA ----------
+// ---------- CODICE CON FIX DEFINITIVO PER SYNC MANUALE E ANTI-TEMPESTA ----------
 package esel.esel.esel.datareader;
 
 import android.app.Notification;
@@ -30,9 +30,7 @@ public class EsNotificationListener extends NotificationListenerService {
 
     private static final Pattern VALUE_PATTERN = Pattern.compile("(?<!\\d:)\\b(\\d+([,.]\\d+)?)\\b(?!:\\d)");
 
-    // --- VARIABILI PER LA NUOVA LOGICA DI DEBOUNCE (ANTI-TEMPESTA) ---
     private static volatile long lastProcessTimeMs = 0;
-    // Ignora qualsiasi notifica che arrivi entro 15 secondi dalla precedente per bloccare la "tempesta" alla fonte.
     private static final long NOTIFICATION_COOLDOWN_MS = 15000; // 15 secondi
 
 
@@ -43,20 +41,6 @@ public class EsNotificationListener extends NotificationListenerService {
         String packageName = sbn.getPackageName();
         if (packageName == null || !packageName.startsWith("com.senseonics")) return;
 
-        // --- FIX DEFINITIVO ANTI-TEMPESTA ---
-        // Questo blocco ora è la prima cosa che facciamo.
-        // Se arriva una notifica troppo presto dopo l'ultima che abbiamo processato,
-        // la scartiamo immediatamente senza fare altri controlli. Questo blocca la raffica alla fonte.
-        long now = System.currentTimeMillis();
-        if (now - lastProcessTimeMs < NOTIFICATION_COOLDOWN_MS) {
-            EselLog.LogI(TAG, "[DEBOUNCE] Notifica ignorata per cooldown temporale. (" + (now - lastProcessTimeMs) / 1000 + "s < 15s)");
-            return;
-        }
-        // Se la notifica è valida, aggiorniamo subito il timestamp per "chiudere la porta" alle altre che arriveranno nella raffica.
-        lastProcessTimeMs = now;
-        // --- FINE FIX ---
-
-
         Notification notification = sbn.getNotification();
         if (notification == null) return;
 
@@ -66,14 +50,25 @@ public class EsNotificationListener extends NotificationListenerService {
             return;
         }
 
-        SGV sgv = generateSGVFromText(fullText, now); // Usiamo 'now' che abbiamo già catturato
+        // --- FIX PER IL SYNC MANUALE ---
+        // Salviamo SEMPRE l'ultima notifica vista, PRIMA di applicare qualsiasi filtro.
+        // In questo modo, il sync manuale avrà sempre a disposizione il dato più fresco.
+        SP.putString(KEY_LAST_SEEN_NOTIFICATION_TEXT, fullText);
+        SP.putLong(KEY_LAST_SEEN_NOTIFICATION_WHEN, notification.when);
+        // --- FINE FIX ---
+
+        long now = System.currentTimeMillis();
+        if (now - lastProcessTimeMs < NOTIFICATION_COOLDOWN_MS) {
+            EselLog.LogI(TAG, "[DEBOUNCE] Notifica ignorata per cooldown temporale. (" + (now - lastProcessTimeMs) / 1000 + "s < 15s)");
+            return;
+        }
+        lastProcessTimeMs = now;
+
+        SGV sgv = generateSGVFromText(fullText, now);
         if (sgv == null) {
             EselLog.LogW(TAG, "Nessun valore glicemico valido trovato nel testo: \"" + fullText + "\"");
             return;
         }
-
-        SP.putString(KEY_LAST_SEEN_NOTIFICATION_TEXT, fullText);
-        SP.putLong(KEY_LAST_SEEN_NOTIFICATION_WHEN, notification.when);
 
         SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
         EselLog.LogI(TAG, "Notifica valida catturata -> Valore: " + sgv.value + " | Timestamp: " + sdf.format(new Date(sgv.timestamp)) + ". Invio broadcast...");
