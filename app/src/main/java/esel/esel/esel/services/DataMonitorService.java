@@ -1,4 +1,4 @@
-// ---------- CODICE CON LOGICA SEMPLIFICATA E TREND CORRETTO (v6) ----------
+// ---------- CODICE CON COOLDOWN A 5 MINUTI PER TEST DERIVA ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -61,7 +61,8 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
 
-    private static final long TIMESTAMP_COOLDOWN_MS = (5 * 60 * 1000L) - 30000L; // 4 minuti e 30 secondi
+    // --- MODIFICA PER TEST: Impostato a 5 minuti esatti ---
+    private static final long TIMESTAMP_COOLDOWN_MS = 5 * 60 * 1000L; // 5 minuti
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
     private static final long HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000L;
 
@@ -227,7 +228,6 @@ public class DataMonitorService extends Service {
 
         double slopeByMinute = (double) (sgvForSlope.value - lastSentFinalValue) * 60000.0d / (double) timeDiff;
 
-        // --- FIX: SOGLIE DI TREND ALLINEATE ALLO STANDARD XDrip+/AAPS ---
         if (slopeByMinute <= -3.5) {
             sgv.direction = "DoubleDown";
         } else if (slopeByMinute <= -2.0) {
