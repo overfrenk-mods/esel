@@ -1,4 +1,4 @@
-// ---------- CODICE CON COOLDOWN A 5 MINUTI PER TEST DERIVA ----------
+// ---------- CODICE CON COOLDOWN A 4 MINUTI E 55 SECONDI ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -61,8 +61,8 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
 
-    // --- MODIFICA PER TEST: Impostato a 5 minuti esatti ---
-    private static final long TIMESTAMP_COOLDOWN_MS = 5 * 60 * 1000L; // 5 minuti
+    // --- MODIFICA DEFINITIVA: Impostato a 4 minuti e 55 secondi per compensare la deriva ---
+    private static final long TIMESTAMP_COOLDOWN_MS = (5 * 60 * 1000L) - 5000L; // 4 minuti e 55 secondi
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
     private static final long HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000L;
 
