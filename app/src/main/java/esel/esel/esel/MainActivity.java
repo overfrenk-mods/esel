@@ -1,9 +1,9 @@
-// ---------- CODICE FINALE CON IMPORT CORRETTO ----------
+// ---------- CODICE FINALE SENZA INIZIALIZZAZIONE RIDONDANTE DEL LOGGER ----------
 package esel.esel.esel;
 
 import android.Manifest;
 import android.app.PendingIntent;
-import android.content.Context; // <-- ECCO LA RIGA MANCANTE
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -50,7 +50,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        EselLog.init(this);
+        // --- RIGA CHE CAUSAVA L'ERRORE RIMOSSA ---
 
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);

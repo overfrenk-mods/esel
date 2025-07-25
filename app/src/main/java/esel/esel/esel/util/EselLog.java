@@ -1,4 +1,4 @@
-// ---------------- INIZIO CODICE PER EselLog.java CON LogR ----------------
+// ---------- CODICE CORRETTO, PULITO E DEFINITIVO CON LogR ----------
 package esel.esel.esel.util;
 
 import android.content.Context;
@@ -6,92 +6,78 @@ import android.util.Log;
 
 import esel.esel.esel.AppLogger;
 
-public class EselLog {
+/**
+ * Wrapper statico per un accesso pulito al logger da tutta l'app.
+ * Fornisce un punto di accesso unico e semplificato.
+ */
+public final class EselLog {
 
-    private static Context appContext;
+    private static AppLogger logger;
 
-    public static void init(Context context) {
-        appContext = context.getApplicationContext();
-        AppLogger.getInstance(appContext);
+    /**
+     * Metodo di inizializzazione. DEVE essere chiamato una sola volta
+     * all'avvio dell'app (nella classe Application).
+     * @param context Il contesto dell'applicazione.
+     */
+    public static void initialize(Context context) {
+        if (logger == null) {
+            logger = AppLogger.getInstance(context);
+        }
     }
 
-    // --- NUOVO METODO PER LOGGARE I RIAVVII ---
-    public static void LogR(String tag, String value){
-        String type = "RESTART"; // Un tipo specifico per identificare i riavvii
-        Log.e(tag, "RESTART: " + value); // Lo logghiamo come Errore in Logcat per massima visibilità
-
-        if (appContext != null) {
-            AppLogger.getInstance(appContext).add(type, tag, value);
+    /**
+     * Log di tipo Informativo (I).
+     */
+    public static void LogI(String tag, String message) {
+        if (logger != null) {
+            logger.add("I", tag, message);
         } else {
-            Log.e("EselLog", "Logger non inizializzato! Chiamare EselLog.init() all'avvio dell'app.");
+            // Fallback su Logcat se il logger non è ancora pronto
+            Log.i(tag, "LOGGER_NOT_READY: " + message);
         }
     }
-    // --- FINE NUOVO METODO ---
 
-    public static void LogI(String tag, String value, boolean toast) {
-        if(toast) {
-            ToastUtils.makeToast("Info: " + value);
-        }
-        LogI(tag,value);
-    }
-
-    public static void LogI(String tag, String value){
-        String type = "Info";
-        Log.i(tag, value);
-
-        if (appContext != null) {
-            AppLogger.getInstance(appContext).add(type, tag, value);
+    /**
+     * Log di tipo Avviso (W).
+     */
+    public static void LogW(String tag, String message) {
+        if (logger != null) {
+            logger.add("W", tag, message);
         } else {
-            Log.e("EselLog", "Logger non inizializzato! Chiamare EselLog.init() all'avvio dell'app.");
+            Log.w(tag, "LOGGER_NOT_READY: " + message);
         }
     }
 
-    public static void LogE(String tag, String value, boolean toast) {
-        if(toast) {
-            ToastUtils.makeToast("Error: " + value);
-        }
-        LogE(tag,value);
-    }
-
-    public static void LogE(String tag, String value){
-        String type = "Error";
-        Log.e(tag, value);
-
-        if (appContext != null) {
-            AppLogger.getInstance(appContext).add(type, tag, value);
+    /**
+     * Log di tipo Errore (E).
+     */
+    public static void LogE(String tag, String message) {
+        if (logger != null) {
+            logger.add("E", tag, message);
         } else {
-            Log.e("EselLog", "Logger non inizializzato! Chiamare EselLog.init() all'avvio dell'app.");
+            Log.e(tag, "LOGGER_NOT_READY: " + message);
         }
     }
 
-    public static void LogW(String tag, String value, boolean toast) {
-        if(toast) {
-            ToastUtils.makeToast("Warning: " + value);
-        }
-        LogW(tag,value);
-    }
-
-    public static void LogW(String tag, String value){
-        String type = "Warning";
-        Log.w(tag, value);
-
-        if (appContext != null) {
-            AppLogger.getInstance(appContext).add(type, tag, value);
+    /**
+     * Log di tipo Verboso (V).
+     */
+    public static void LogV(String tag, String message) {
+        if (logger != null) {
+            logger.add("V", tag, message);
         } else {
-            Log.e("EselLog", "Logger non inizializzato! Chiamare EselLog.init() all'avvio dell'app.");
+            Log.v(tag, "LOGGER_NOT_READY: " + message);
         }
     }
 
-    public static void LogV(String tag, String value, boolean toast) {
-        if(toast) {
-            ToastUtils.makeToast("Message: " + value);
+    /**
+     * Log speciale per Riavvi (R), per identificarli facilmente nel file.
+     */
+    public static void LogR(String tag, String message) {
+        if (logger != null) {
+            logger.add("RESTART", tag, message);
+        } else {
+            Log.e(tag, "LOGGER_NOT_READY (RESTART): " + message);
         }
-        LogV(tag,value);
-    }
-
-    public static void LogV(String tag, String value){
-        String type = "Message";
-        Log.v(tag,value);
     }
 }
-// ---------------- FINE CODICE PER EselLog.java ----------------

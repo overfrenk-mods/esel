@@ -1,4 +1,4 @@
-// ---------- CODICE CON APPLICAZIONE DELLA LINGUA ALL'AVVIO ----------
+// ---------- CODICE CON INIZIALIZZAZIONE DEL LOGGER CORRETTA ----------
 package esel.esel.esel;
 
 import android.app.Application;
@@ -15,7 +15,7 @@ import androidx.core.content.ContextCompat;
 
 import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
-import esel.esel.esel.util.LocaleHelper; // <-- NUOVO IMPORT
+import esel.esel.esel.util.LocaleHelper;
 import esel.esel.esel.util.SP;
 
 public class Esel extends Application {
@@ -25,9 +25,6 @@ public class Esel extends Application {
 
     public static final String ALERT_CHANNEL_ID = "EselAlertChannel";
 
-    // --- NUOVO METODO DA AGGIUNGERE ---
-    // Questo metodo viene chiamato da Android prima di onCreate()
-    // ed è il posto perfetto per impostare la lingua.
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(LocaleHelper.onAttach(base));
@@ -39,13 +36,15 @@ public class Esel extends Application {
         super.onCreate();
 
         CrashCatcher.install(this);
-        EselLog.init(this);
+        // --- CORREZIONE APPLICATA QUI ---
+        EselLog.initialize(this);
 
         sInstance = this;
         sResources = getResources();
 
         logSystemInfo();
 
+        // Questa chiamata ora funziona correttamente
         EselLog.LogI("EselApp", "Application onCreate");
 
         createNotificationChannels();

@@ -1,24 +1,27 @@
-// ---------- CODICE CON SCRITTURA SICURA "ATOMICA" E TRONCAMENTO A ROTAZIONE ----------
+// ---------- CODICE PROFESSIONALE CON STRATEGIA "APPEND-E-TRONCA" ----------
 package esel.esel.esel;
 
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
+
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.preference.PreferenceManager;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -26,23 +29,24 @@ public class AppLogger {
 
     private static final String TAG = "AppLogger";
     private static final String LOG_FILE_NAME = "app_log.txt";
-    private static final String TEMP_LOG_FILE_NAME = "app_log.txt.tmp"; // File temporaneo per la scrittura sicura
+    private static final String TEMP_LOG_FILE_NAME = "app_log.txt.tmp";
 
     private static volatile AppLogger INSTANCE;
     private final Context appContext;
     private final File logFile;
-    private final File tempLogFile; // Aggiunto riferimento al file temporaneo
     private final ExecutorService executor;
+    private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
 
-    private final MutableLiveData<List<String>> logsLiveData = new MutableLiveData<>();
-    private final List<String> logLines = new ArrayList<>();
+    // LiveData per l'aggiornamento della UI
+    private final MutableLiveData<List<String>> logsLiveData = new MutableLiveData<>(new ArrayList<>());
+    // Cache in memoria delle righe di log, sempre in ordine inverso (nuove in cima)
+    private final List<String> logLinesCache = new ArrayList<>();
 
     private AppLogger(Context context) {
         this.appContext = context.getApplicationContext();
         this.logFile = new File(appContext.getFilesDir(), LOG_FILE_NAME);
-        this.tempLogFile = new File(appContext.getFilesDir(), TEMP_LOG_FILE_NAME);
         this.executor = Executors.newSingleThreadExecutor();
-        loadLogsFromFile();
+        loadAndTrimLogFile();
     }
 
     public static AppLogger getInstance(Context context) {
@@ -59,25 +63,15 @@ public class AppLogger {
     public void add(String type, String tag, String value) {
         executor.execute(() -> {
             try {
-                LocalDateTime currentTime = LocalDateTime.now();
-                DateTimeFormatter format = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                String timestamp = dateFormat.format(new Date());
                 String threadName = Thread.currentThread().getName();
-                String formattedLine = String.format("%s: [%s] [%s] %s: %s", currentTime.format(format), type, threadName, tag, value);
+                String formattedLine = String.format("%s: [%s] [%s] %s: %s", timestamp, type, threadName, tag, value);
 
-                List<String> currentLogsForFile;
-                synchronized (logLines) {
-                    logLines.add(0, formattedLine);
-                    int maxLogLines = getMaxLogLinesFromPrefs();
-                    while (logLines.size() > maxLogLines) {
-                        logLines.remove(logLines.size() - 1);
-                    }
-                    currentLogsForFile = new ArrayList<>(logLines);
-                }
+                // 1. Aggiungi la riga al file in modo efficiente (append)
+                appendLogToFile(formattedLine);
 
-                logsLiveData.postValue(currentLogsForFile);
-
-                // Ora usiamo il metodo di scrittura sicura
-                writeLogsToFileSafely(currentLogsForFile);
+                // 2. Aggiorna la cache in memoria e il LiveData per la UI
+                updateMemoryCache(formattedLine);
 
             } catch (Exception e) {
                 Log.e(TAG, "Errore durante l'aggiunta del log", e);
@@ -85,100 +79,123 @@ public class AppLogger {
         });
     }
 
-    private void writeLogsToFileSafely(List<String> linesToWrite) {
-        List<String> linesToPersist = new ArrayList<>(linesToWrite);
-        Collections.reverse(linesToPersist);
+    private void appendLogToFile(String line) {
+        // Scrive in modalità 'append' (true), molto efficiente
+        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(logFile, true)))) {
+            writer.println(line);
+        } catch (IOException e) {
+            Log.e(TAG, "Errore critico durante la scrittura (append) del log", e);
+        }
+    }
 
-        // 1. Scrivi su un file temporaneo
-        try (PrintWriter writer = new PrintWriter(new FileWriter(tempLogFile, false))) {
-            for (String line : linesToPersist) {
+    private void updateMemoryCache(String line) {
+        synchronized (logLinesCache) {
+            // Aggiungi in cima
+            logLinesCache.add(0, line);
+
+            // Rimuovi dal fondo se la cache supera la dimensione massima
+            int maxLogLines = getMaxLogLinesFromPrefs();
+            while (logLinesCache.size() > maxLogLines) {
+                logLinesCache.remove(logLinesCache.size() - 1);
+            }
+
+            // Notifica la UI con una nuova lista per triggerare l'aggiornamento
+            logsLiveData.postValue(new ArrayList<>(logLinesCache));
+        }
+    }
+
+    /**
+     * Questo metodo viene eseguito solo all'avvio.
+     * Legge il file, lo tronca se necessario e popola la cache iniziale.
+     */
+    private void loadAndTrimLogFile() {
+        executor.execute(() -> {
+            if (!logFile.exists()) {
+                return;
+            }
+
+            List<String> linesFromFile = new ArrayList<>();
+            try (BufferedReader reader = new BufferedReader(new FileReader(logFile))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    linesFromFile.add(line);
+                }
+            } catch (IOException e) {
+                Log.e(TAG, "Errore durante la lettura del file di log", e);
+                return;
+            }
+
+            int maxLogLines = getMaxLogLinesFromPrefs();
+            List<String> finalLines;
+
+            // Se il file è più grande del consentito, lo tronchiamo
+            if (linesFromFile.size() > maxLogLines) {
+                Log.w(TAG, "File di log (" + linesFromFile.size() + ") supera il limite (" + maxLogLines + "). Troncamento...");
+                int startIndex = linesFromFile.size() - maxLogLines;
+                finalLines = linesFromFile.subList(startIndex, linesFromFile.size());
+                rewriteFileWithLines(finalLines); // Operazione costosa, ma eseguita solo una volta
+            } else {
+                finalLines = linesFromFile;
+            }
+
+            // Popola la cache in memoria e notifica la UI
+            synchronized (logLinesCache) {
+                logLinesCache.clear();
+                logLinesCache.addAll(finalLines);
+                Collections.reverse(logLinesCache); // La UI vuole le righe nuove in cima
+                logsLiveData.postValue(new ArrayList<>(logLinesCache));
+            }
+        });
+    }
+
+    private void rewriteFileWithLines(List<String> lines) {
+        File tempFile = new File(appContext.getFilesDir(), TEMP_LOG_FILE_NAME);
+        try (PrintWriter writer = new PrintWriter(new FileWriter(tempFile))) {
+            for (String line : lines) {
                 writer.println(line);
             }
-            writer.flush();
         } catch (IOException e) {
-            Log.e(TAG, "Errore durante la scrittura sul file di log temporaneo", e);
-            // Se la scrittura fallisce, non continuiamo per non corrompere il file originale
-            if(tempLogFile.exists()) tempLogFile.delete();
+            Log.e(TAG, "Impossibile riscrivere il file di log troncato.", e);
+            if(tempFile.exists()) tempFile.delete(); // Pulisci il file temp
             return;
         }
 
-        // 2. Se la scrittura ha successo, esegui lo scambio atomico
-        try {
-            if (logFile.exists()) {
-                logFile.delete();
+        // Scambio atomico
+        if (logFile.delete()) {
+            if (!tempFile.renameTo(logFile)) {
+                Log.e(TAG, "FALLIMENTO ATOMICO: Impossibile rinominare il file temp in quello definitivo.");
             }
-            if (!tempLogFile.renameTo(logFile)) {
-                Log.e(TAG, "FALLIMENTO: Impossibile rinominare il file di log temporaneo.");
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Errore durante lo scambio dei file di log", e);
+        } else {
+            Log.e(TAG, "FALLIMENTO ATOMICO: Impossibile eliminare il vecchio file di log.");
         }
     }
+
 
     public LiveData<List<String>> getLogs() {
         return logsLiveData;
     }
 
-    private void loadLogsFromFile() {
-        executor.execute(() -> {
-            // Controllo di sicurezza: se esiste un file temporaneo all'avvio, significa che c'è stato un crash.
-            // Lo cancelliamo per ripartire puliti.
-            if(tempLogFile.exists()){
-                Log.w(TAG, "Trovato file di log temporaneo all'avvio. Potrebbe esserci stato un crash. Lo elimino.");
-                tempLogFile.delete();
-            }
-
-            if (!logFile.exists()) {
-                logsLiveData.postValue(Collections.emptyList());
-                return;
-            }
-
-            List<String> tempLines = new ArrayList<>();
-            try (BufferedReader reader = new BufferedReader(new FileReader(logFile))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    tempLines.add(line);
-                }
-            } catch (IOException e) {
-                Log.e(TAG, "Errore durante la lettura del file di log", e);
-            }
-
-            int maxLogLines = getMaxLogLinesFromPrefs();
-            if (tempLines.size() > maxLogLines) {
-                Log.w(TAG, "File di log troppo grande (" + tempLines.size() + " righe). Troncamento a " + maxLogLines + " righe.");
-                int excess = tempLines.size() - maxLogLines;
-                tempLines = tempLines.subList(excess, tempLines.size());
-                writeLogsToFileSafely(tempLines);
-            }
-
-            synchronized (logLines) {
-                logLines.clear();
-                logLines.addAll(tempLines);
-                Collections.reverse(logLines);
-            }
-            logsLiveData.postValue(new ArrayList<>(logLines));
-        });
-    }
-
     public void clearLogs() {
         executor.execute(() -> {
-            synchronized (logLines) {
-                logLines.clear();
+            synchronized (logLinesCache) {
+                logLinesCache.clear();
             }
             if (logFile.exists()) {
                 logFile.delete();
             }
+            // Aggiorna la UI con una lista vuota
             logsLiveData.postValue(new ArrayList<>());
-            Log.w(TAG, "Log pulito dall'utente.");
+            Log.w(TAG, "Log pulito manualmente dall'utente.");
         });
     }
 
     private int getMaxLogLinesFromPrefs() {
         try {
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(appContext);
-            return Integer.parseInt(prefs.getString("log_max_lines", "15000"));
+            String value = prefs.getString("log_max_lines", "15000");
+            return Integer.parseInt(value);
         } catch (Exception e) {
-            return 15000;
+            return 15000; // Valore di fallback sicuro
         }
     }
 }
