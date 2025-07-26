@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE CON RECYCLERVIEW PER I LOG ----------
+// ---------- CODICE FINALE CON FUNZIONE DI CONDIVISIONE CORRETTA ----------
 package esel.esel.esel;
 
 import android.content.Intent;
@@ -17,6 +17,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -35,7 +37,6 @@ public class LogActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // Usa il nuovo layout con il RecyclerView
         setContentView(R.layout.activity_errors);
 
         Toolbar toolbar = findViewById(R.id.toolbar_log);
@@ -45,12 +46,10 @@ public class LogActivity extends AppCompatActivity {
             getSupportActionBar().setTitle(R.string.log_activity_title);
         }
 
-        // Inizializza il RecyclerView e il suo Adapter
         setupRecyclerView();
 
         appLogger = AppLogger.getInstance(getApplicationContext());
 
-        // L'observer rimane lo stesso, ma ora aggiornerà l'adapter invece della TextView
         final Observer<List<String>> logObserver = newLogLines -> {
             this.allLogLines = new ArrayList<>(newLogLines);
             updateDisplayedLogs();
@@ -77,23 +76,37 @@ public class LogActivity extends AppCompatActivity {
                     .collect(Collectors.toList());
         }
 
-        // Invia la lista filtrata all'adapter, che gestirà la visualizzazione
         logAdapter.submitList(filteredList);
     }
 
+    // --- METODO DI CONDIVISIONE MODIFICATO ---
     private void shareLogFile() {
-        try {
-            File logFile = new File(getFilesDir(), "app_log.txt");
+        // 1. Chiamiamo il nuovo metodo che unisce tutti i file di log
+        List<String> completeLog = appLogger.getCompleteLogForSharing();
 
-            if (!logFile.exists()) {
-                Toast.makeText(this, R.string.log_toast_file_not_found, Toast.LENGTH_SHORT).show();
-                return;
+        if (completeLog.isEmpty()) {
+            Toast.makeText(this, R.string.log_toast_file_not_found, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        try {
+            // 2. Creiamo un singolo file temporaneo nella cache dell'app
+            File cachePath = new File(getCacheDir(), "logs");
+            cachePath.mkdirs();
+            File tempFile = new File(cachePath, "eversense_reader_log.txt");
+
+            // 3. Scriviamo tutte le righe del log nel file temporaneo
+            try (FileWriter writer = new FileWriter(tempFile)) {
+                for (String line : completeLog) {
+                    writer.append(line).append("\n");
+                }
             }
 
+            // 4. Condividiamo il file temporaneo appena creato
             Uri logUri = FileProvider.getUriForFile(
                     this,
                     BuildConfig.APPLICATION_ID + ".provider",
-                    logFile
+                    tempFile
             );
 
             Intent shareIntent = new Intent(Intent.ACTION_SEND);
@@ -103,9 +116,12 @@ public class LogActivity extends AppCompatActivity {
 
             startActivity(Intent.createChooser(shareIntent, getString(R.string.log_share_chooser_title)));
 
+        } catch (IOException e) {
+            Toast.makeText(this, R.string.log_toast_share_error, Toast.LENGTH_SHORT).show();
+            EselLog.LogE("LogActivity", "Errore I/O durante la creazione del file di log temporaneo: " + e.getMessage());
         } catch (Exception e) {
             Toast.makeText(this, R.string.log_toast_share_error, Toast.LENGTH_SHORT).show();
-            EselLog.LogE("LogActivity", "Errore condivisione log: " + e.getMessage());
+            EselLog.LogE("LogActivity", "Errore generico condivisione log: " + e.getMessage());
         }
     }
 

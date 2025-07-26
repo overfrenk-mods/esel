@@ -1,4 +1,4 @@
-// ---------- CODICE PROFESSIONALE CON STRATEGIA "APPEND-E-TRONCA" ----------
+// ---------- CODICE CON LOGICA PROFESSIONALE A ROTAZIONE DI FILE ----------
 package esel.esel.esel;
 
 import android.content.Context;
@@ -28,25 +28,27 @@ import java.util.concurrent.Executors;
 public class AppLogger {
 
     private static final String TAG = "AppLogger";
-    private static final String LOG_FILE_NAME = "app_log.txt";
-    private static final String TEMP_LOG_FILE_NAME = "app_log.txt.tmp";
+    private static final String LOG_FILE_BASE_NAME = "app_log";
+    private static final String LOG_FILE_EXTENSION = ".txt";
+    private static final int NUM_LOG_FILES = 3; // Usiamo 3 file a rotazione
 
     private static volatile AppLogger INSTANCE;
     private final Context appContext;
-    private final File logFile;
     private final ExecutorService executor;
     private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault());
 
-    // LiveData per l'aggiornamento della UI
+    // LiveData e Cache in memoria, come prima
     private final MutableLiveData<List<String>> logsLiveData = new MutableLiveData<>(new ArrayList<>());
-    // Cache in memoria delle righe di log, sempre in ordine inverso (nuove in cima)
     private final List<String> logLinesCache = new ArrayList<>();
+
+    // Contatore per le righe nel file corrente, per sapere quando ruotare
+    private int currentLogFileLines = 0;
 
     private AppLogger(Context context) {
         this.appContext = context.getApplicationContext();
-        this.logFile = new File(appContext.getFilesDir(), LOG_FILE_NAME);
         this.executor = Executors.newSingleThreadExecutor();
-        loadAndTrimLogFile();
+        // All'avvio, carichiamo i log da tutti i file a rotazione
+        loadLogsFromRotatingFiles();
     }
 
     public static AppLogger getInstance(Context context) {
@@ -67,11 +69,14 @@ public class AppLogger {
                 String threadName = Thread.currentThread().getName();
                 String formattedLine = String.format("%s: [%s] [%s] %s: %s", timestamp, type, threadName, tag, value);
 
-                // 1. Aggiungi la riga al file in modo efficiente (append)
+                // 1. Scrivi sul file corrente (app_log.0.txt)
                 appendLogToFile(formattedLine);
 
-                // 2. Aggiorna la cache in memoria e il LiveData per la UI
+                // 2. Aggiorna la cache in memoria per la UI
                 updateMemoryCache(formattedLine);
+
+                // 3. Controlla se è ora di ruotare i file
+                checkAndRotateLogs();
 
             } catch (Exception e) {
                 Log.e(TAG, "Errore durante l'aggiunta del log", e);
@@ -80,94 +85,110 @@ public class AppLogger {
     }
 
     private void appendLogToFile(String line) {
-        // Scrive in modalità 'append' (true), molto efficiente
-        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(logFile, true)))) {
+        File currentLogFile = new File(appContext.getFilesDir(), LOG_FILE_BASE_NAME + ".0" + LOG_FILE_EXTENSION);
+        try (PrintWriter writer = new PrintWriter(new BufferedWriter(new FileWriter(currentLogFile, true)))) {
             writer.println(line);
+            currentLogFileLines++; // Incrementiamo il contatore solo se la scrittura va a buon fine
         } catch (IOException e) {
             Log.e(TAG, "Errore critico durante la scrittura (append) del log", e);
         }
     }
 
+    private void checkAndRotateLogs() {
+        int maxLinesPerFile = getMaxLogLinesFromPrefs() / NUM_LOG_FILES;
+        if (currentLogFileLines >= maxLinesPerFile) {
+            Log.i(TAG, "Limite per il file di log corrente raggiunto. Avvio la rotazione...");
+            rotateLogFiles();
+            currentLogFileLines = 0; // Azzera il contatore per il nuovo file
+        }
+    }
+
+    private void rotateLogFiles() {
+        // 1. Cancella il file più vecchio (es. app_log.2.txt)
+        File oldestFile = new File(appContext.getFilesDir(), LOG_FILE_BASE_NAME + "." + (NUM_LOG_FILES - 1) + LOG_FILE_EXTENSION);
+        if (oldestFile.exists()) {
+            oldestFile.delete();
+        }
+
+        // 2. Rinomina gli altri file a scalare (es. 1->2, 0->1)
+        for (int i = NUM_LOG_FILES - 2; i >= 0; i--) {
+            File sourceFile = new File(appContext.getFilesDir(), LOG_FILE_BASE_NAME + "." + i + LOG_FILE_EXTENSION);
+            if (sourceFile.exists()) {
+                File destFile = new File(appContext.getFilesDir(), LOG_FILE_BASE_NAME + "." + (i + 1) + LOG_FILE_EXTENSION);
+                sourceFile.renameTo(destFile);
+            }
+        }
+    }
+
     private void updateMemoryCache(String line) {
         synchronized (logLinesCache) {
-            // Aggiungi in cima
-            logLinesCache.add(0, line);
+            logLinesCache.add(0, line); // Aggiungi in cima (più recente)
 
-            // Rimuovi dal fondo se la cache supera la dimensione massima
-            int maxLogLines = getMaxLogLinesFromPrefs();
-            while (logLinesCache.size() > maxLogLines) {
+            // Rimuovi dal fondo se la cache supera il limite totale
+            int maxTotalLines = getMaxLogLinesFromPrefs();
+            while (logLinesCache.size() > maxTotalLines) {
                 logLinesCache.remove(logLinesCache.size() - 1);
             }
-
-            // Notifica la UI con una nuova lista per triggerare l'aggiornamento
             logsLiveData.postValue(new ArrayList<>(logLinesCache));
         }
     }
 
-    /**
-     * Questo metodo viene eseguito solo all'avvio.
-     * Legge il file, lo tronca se necessario e popola la cache iniziale.
-     */
-    private void loadAndTrimLogFile() {
+    private void loadLogsFromRotatingFiles() {
         executor.execute(() -> {
-            if (!logFile.exists()) {
-                return;
+            // Per sicurezza, se troviamo ancora il vecchio file di log, lo cancelliamo
+            // per garantire la transizione al nuovo sistema a rotazione.
+            File oldLogFile = new File(appContext.getFilesDir(), "app_log.txt");
+            if (oldLogFile.exists()) {
+                Log.w(TAG, "Trovato vecchio file di log. Verrà eliminato per passare al nuovo sistema a rotazione.");
+                oldLogFile.delete();
             }
 
-            List<String> linesFromFile = new ArrayList<>();
-            try (BufferedReader reader = new BufferedReader(new FileReader(logFile))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    linesFromFile.add(line);
+            List<String> allLines = new ArrayList<>();
+            int linesInCurrentFile = 0;
+
+            // Leggiamo i file dall'ultimo al primo (es. 2, 1, 0) per avere l'ordine cronologico corretto
+            for (int i = NUM_LOG_FILES - 1; i >= 0; i--) {
+                File file = new File(appContext.getFilesDir(), LOG_FILE_BASE_NAME + "." + i + LOG_FILE_EXTENSION);
+                if (file.exists()) {
+                    List<String> linesFromFile = readAllLines(file);
+                    allLines.addAll(linesFromFile);
+                    if (i == 0) { // Se stiamo leggendo il file corrente (0), contiamo le sue righe
+                        linesInCurrentFile = linesFromFile.size();
+                    }
                 }
-            } catch (IOException e) {
-                Log.e(TAG, "Errore durante la lettura del file di log", e);
-                return;
             }
 
-            int maxLogLines = getMaxLogLinesFromPrefs();
-            List<String> finalLines;
+            this.currentLogFileLines = linesInCurrentFile;
 
-            // Se il file è più grande del consentito, lo tronchiamo
-            if (linesFromFile.size() > maxLogLines) {
-                Log.w(TAG, "File di log (" + linesFromFile.size() + ") supera il limite (" + maxLogLines + "). Troncamento...");
-                int startIndex = linesFromFile.size() - maxLogLines;
-                finalLines = linesFromFile.subList(startIndex, linesFromFile.size());
-                rewriteFileWithLines(finalLines); // Operazione costosa, ma eseguita solo una volta
-            } else {
-                finalLines = linesFromFile;
-            }
-
-            // Popola la cache in memoria e notifica la UI
             synchronized (logLinesCache) {
                 logLinesCache.clear();
-                logLinesCache.addAll(finalLines);
-                Collections.reverse(logLinesCache); // La UI vuole le righe nuove in cima
+                // Aggiungiamo tutte le righe e poi le invertiamo, perché la cache vuole le più recenti in cima
+                logLinesCache.addAll(allLines);
+                Collections.reverse(logLinesCache);
+
+                // Assicuriamoci che la cache non superi comunque il limite massimo
+                int maxTotalLines = getMaxLogLinesFromPrefs();
+                while (logLinesCache.size() > maxTotalLines) {
+                    logLinesCache.remove(logLinesCache.size() - 1);
+                }
+
                 logsLiveData.postValue(new ArrayList<>(logLinesCache));
             }
+            Log.i(TAG, "Caricate " + logLinesCache.size() + " righe di log dai file a rotazione.");
         });
     }
 
-    private void rewriteFileWithLines(List<String> lines) {
-        File tempFile = new File(appContext.getFilesDir(), TEMP_LOG_FILE_NAME);
-        try (PrintWriter writer = new PrintWriter(new FileWriter(tempFile))) {
-            for (String line : lines) {
-                writer.println(line);
+    private List<String> readAllLines(File file) {
+        List<String> lines = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                lines.add(line);
             }
         } catch (IOException e) {
-            Log.e(TAG, "Impossibile riscrivere il file di log troncato.", e);
-            if(tempFile.exists()) tempFile.delete(); // Pulisci il file temp
-            return;
+            Log.e(TAG, "Errore durante la lettura del file " + file.getName(), e);
         }
-
-        // Scambio atomico
-        if (logFile.delete()) {
-            if (!tempFile.renameTo(logFile)) {
-                Log.e(TAG, "FALLIMENTO ATOMICO: Impossibile rinominare il file temp in quello definitivo.");
-            }
-        } else {
-            Log.e(TAG, "FALLIMENTO ATOMICO: Impossibile eliminare il vecchio file di log.");
-        }
+        return lines;
     }
 
 
@@ -175,17 +196,39 @@ public class AppLogger {
         return logsLiveData;
     }
 
+    /**
+     * Usato per la funzione "Condividi Log".
+     * Unisce tutti i file di log in una singola lista di stringhe.
+     * @return Una lista contenente tutte le righe di log in ordine cronologico.
+     */
+    public List<String> getCompleteLogForSharing() {
+        List<String> allLines = new ArrayList<>();
+        // Leggiamo i file dall'ultimo al primo (2, 1, 0) per avere l'ordine cronologico.
+        for (int i = NUM_LOG_FILES - 1; i >= 0; i--) {
+            File file = new File(appContext.getFilesDir(), LOG_FILE_BASE_NAME + "." + i + LOG_FILE_EXTENSION);
+            if (file.exists()) {
+                allLines.addAll(readAllLines(file));
+            }
+        }
+        return allLines;
+    }
+
+
     public void clearLogs() {
         executor.execute(() -> {
+            // Cancella tutti i file a rotazione
+            for (int i = 0; i < NUM_LOG_FILES; i++) {
+                File file = new File(appContext.getFilesDir(), LOG_FILE_BASE_NAME + "." + i + LOG_FILE_EXTENSION);
+                if (file.exists()) {
+                    file.delete();
+                }
+            }
             synchronized (logLinesCache) {
                 logLinesCache.clear();
+                logsLiveData.postValue(new ArrayList<>());
             }
-            if (logFile.exists()) {
-                logFile.delete();
-            }
-            // Aggiorna la UI con una lista vuota
-            logsLiveData.postValue(new ArrayList<>());
-            Log.w(TAG, "Log pulito manualmente dall'utente.");
+            currentLogFileLines = 0;
+            Log.w(TAG, "Tutti i file di log sono stati puliti dall'utente.");
         });
     }
 
@@ -193,9 +236,11 @@ public class AppLogger {
         try {
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(appContext);
             String value = prefs.getString("log_max_lines", "15000");
-            return Integer.parseInt(value);
+            // Assicuriamoci che il valore sia divisibile per il numero di file per evitare problemi
+            int parsedValue = Integer.parseInt(value);
+            return (parsedValue / NUM_LOG_FILES) * NUM_LOG_FILES;
         } catch (Exception e) {
-            return 15000; // Valore di fallback sicuro
+            return 15000;
         }
     }
 }
