@@ -92,43 +92,25 @@
 
         <SwitchPreferenceCompat
             app:key="smooth_data"
-            app:title="Attiva Smoothing Dati"
-            app:summary="Utile per sensori 'rumorosi' o a fine vita per stabilizzare le letture."
+            app:title="@string/smooth_data_title"
+            app:summary="@string/smooth_data_summary"
             app:defaultValue="false" />
 
-        <EditTextPreference
-            app:key="smooth_factor"
-            app:title="Fattore Smoothing"
-            app:summary="Esponenziale (1=non filtra / 0.1=filtra MOLTO). Default: 0.3"
-            app:defaultValue="0.3"
-            app:dialogTitle="Fattore Smoothing"
-            android:inputType="numberDecimal"
-            app:dependency="smooth_data" />
-
-        <EditTextPreference
-            app:key="correction_factor"
-            app:title="Fattore Correzione"
-            app:summary="0=nessuna correzione, 1=massima correzione. Default: 0.5"
-            app:defaultValue="0.5"
-            app:dialogTitle="Fattore Correzione"
-            android:inputType="numberDecimal"
-            app:dependency="smooth_data" />
-
-        <EditTextPreference
-            app:key="descent_factor"
-            app:title="Fattore Discesa"
-            app:summary="Disabilita lo smoothing in discesa (0=nessun effetto, 1=effetto massimo). Default: 0"
-            app:defaultValue="0"
-            app:dialogTitle="Fattore Discesa"
-            android:inputType="numberDecimal"
+        <ListPreference
+            app:key="smoothing_level"
+            app:title="@string/smoothing_level_title"
+            app:summary="%s"
+            app:entries="@array/smoothing_level_entries"
+            app:entryValues="@array/smoothing_level_values"
+            app:defaultValue="medium"
             app:dependency="smooth_data" />
 
         <EditTextPreference
             app:key="lower_limit"
-            app:title="Limite Inferiore Smoothing"
-            app:summary="Lo smoothing viene disabilitato sotto questo valore di glicemia. Default: 65"
+            app:title="@string/lower_limit_title"
+            app:summary="@string/lower_limit_summary"
             app:defaultValue="65"
-            app:dialogTitle="Limite Inferiore (mg/dL)"
+            app:dialogTitle="@string/lower_limit_dialog_title"
             android:inputType="number"
             app:dependency="smooth_data" />
 

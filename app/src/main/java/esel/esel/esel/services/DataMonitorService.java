@@ -1,4 +1,4 @@
-// ---------- CODICE CON COOLDOWN A 4 MINUTI E 55 SECONDI ----------
+// ---------- CODICE FINALE CON SMOOTHING "EASY" A LIVELLI PREIMPOSTATI ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -61,8 +61,7 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
 
-    // --- MODIFICA DEFINITIVA: Impostato a 4 minuti e 55 secondi per compensare la deriva ---
-    private static final long TIMESTAMP_COOLDOWN_MS = (5 * 60 * 1000L) - 5000L; // 4 minuti e 55 secondi
+    private static final long TIMESTAMP_COOLDOWN_MS = (5 * 60 * 1000L) - 5000L;
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
     private static final long HEARTBEAT_INTERVAL_MS = 2 * 60 * 1000L;
 
@@ -158,12 +157,11 @@ public class DataMonitorService extends Service {
                 long timeSinceLastSgv = sgv.timestamp - lastSgvTimestamp;
 
                 if (lastSgvTimestamp > 0 && timeSinceLastSgv > LONG_PAUSE_THRESHOLD_MS) {
-                    EselLog.LogW(TAG, "Rilevata lunga pausa di " + (timeSinceLastSgv / 60000) + " min. Resetto stato pendenza.");
+                    EselLog.LogW(TAG, "Rilevata lunga pausa di " + (timeSinceLastSgv / 60000) + " min. Resetto stato pendenza e smoothing.");
                     SP.putLong(KEY_LAST_SGV_TIMESTAMP, 0L);
                     SP.putInt(KEY_LAST_SGV_RAW_VALUE, -1);
                     SP.putInt(KEY_LAST_SGV_FINAL_VALUE, -1);
-                }
-                else if (lastSgvTimestamp > 0 && timeSinceLastSgv < TIMESTAMP_COOLDOWN_MS) {
+                } else if (lastSgvTimestamp > 0 && timeSinceLastSgv < TIMESTAMP_COOLDOWN_MS) {
                     EselLog.LogI(TAG, "[FILTRO] Dato scartato per cooldown. Intervallo: " + (timeSinceLastSgv / 1000) + "s < " + (TIMESTAMP_COOLDOWN_MS / 1000) + "s");
                     return;
                 }
@@ -171,11 +169,15 @@ public class DataMonitorService extends Service {
                 EselLog.LogW(TAG, "SYNC MANUALE: Filtri temporali bypassati.");
             }
 
-            EselLog.LogI(TAG, "SGV(" + sgv.value + ") ha superato i filtri. Inizio elaborazione.");
+            EselLog.LogI(TAG, "SGV(" + sgv.raw + ") ha superato i filtri. Inizio elaborazione.");
+
+            // --- NUOVA LOGICA DI SMOOTHING "EASY" ---
+            int finalValue = applyEasySmoothing(sgv);
+            sgv.value = finalValue; // Aggiorniamo il valore dell'SGV con quello finale (smussato o grezzo)
+            // --- FINE NUOVA LOGICA ---
 
             calculateTrend(sgv);
 
-            sgv.value = sgv.raw;
             EselLog.LogI(TAG, "Pronto per invio: Valore=" + sgv.value + " (Grezzo=" + sgv.raw + ") | Direzione=" + sgv.direction);
 
             if (SP.getBoolean("send_to_AAPS", true)) { AapsSender.sendToAaps(getApplicationContext(), sgv); }
@@ -184,7 +186,7 @@ public class DataMonitorService extends Service {
             SP.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, System.currentTimeMillis());
             SP.putLong(KEY_LAST_SGV_TIMESTAMP, sgv.timestamp);
             SP.putInt(KEY_LAST_SGV_RAW_VALUE, sgv.raw);
-            SP.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.raw);
+            SP.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.value); // Salviamo il valore finale (potrebbe essere smussato)
 
             updateSgvHistory(sgv);
 
@@ -195,7 +197,7 @@ public class DataMonitorService extends Service {
             updateNotification(notificationText);
 
         } catch (Throwable t) {
-            android.util.Log.e(TAG, "Errore critico durante il processamento del SGV:", t);
+            EselLog.LogE(TAG, "Errore critico durante il processamento del SGV: " + t.getMessage());
         } finally {
             if (wakeLock != null && wakeLock.isHeld()) {
                 wakeLock.release();
@@ -204,9 +206,88 @@ public class DataMonitorService extends Service {
         }
     }
 
+    private int applyEasySmoothing(SGV currentSgv) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+
+        boolean smoothingEnabled = prefs.getBoolean("smooth_data", false);
+        if (!smoothingEnabled) {
+            EselLog.LogI(TAG, "[SMOOTHING] Disabilitato. Uso il valore grezzo: " + currentSgv.raw);
+            return currentSgv.raw;
+        }
+
+        try {
+            int lowerLimit = Integer.parseInt(prefs.getString("lower_limit", "65"));
+            if (currentSgv.raw < lowerLimit) {
+                EselLog.LogW(TAG, "[SMOOTHING] SICUREZZA: Valore grezzo (" + currentSgv.raw + ") sotto il limite (" + lowerLimit + "). Smoothing disattivato.");
+                return currentSgv.raw;
+            }
+
+            String level = prefs.getString("smoothing_level", "medium");
+            double smoothFactor;
+            double correctionFactor;
+            double descentFactor;
+
+            // Impostiamo i coefficienti in base al livello scelto
+            switch (level) {
+                case "soft":
+                    smoothFactor = 0.5;
+                    correctionFactor = 0.5;
+                    descentFactor = 0.3;
+                    break;
+                case "high":
+                    smoothFactor = 0.2;
+                    correctionFactor = 0.4;
+                    descentFactor = 0.0;
+                    break;
+                case "strong":
+                    smoothFactor = 0.15;
+                    correctionFactor = 0.3;
+                    descentFactor = 0.0;
+                    break;
+                case "medium":
+                default:
+                    smoothFactor = 0.3;
+                    correctionFactor = 0.5;
+                    descentFactor = 0.1;
+                    break;
+            }
+            EselLog.LogI(TAG, "[SMOOTHING] Livello selezionato: " + level);
+
+
+            int lastFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
+            if (lastFinalValue == -1) {
+                EselLog.LogI(TAG, "[SMOOTHING] Primo avvio dopo reset. Inizializzo con il valore grezzo: " + currentSgv.raw);
+                return currentSgv.raw;
+            }
+
+            EselLog.LogI(TAG, "[SMOOTHING] START -> Grezzo: " + currentSgv.raw + ", Ultimo Finale: " + lastFinalValue);
+
+            // 1. Calcolo del valore smussato di base (EMA)
+            double smoothedValue = (currentSgv.raw * smoothFactor) + (lastFinalValue * (1 - smoothFactor));
+
+            // 2. Applicazione del fattore di discesa per sicurezza
+            double difference = smoothedValue - lastFinalValue;
+            if (difference < 0) { // Se la glicemia sta scendendo
+                double adjustedDifference = difference * (1 - descentFactor);
+                smoothedValue = lastFinalValue + adjustedDifference;
+                EselLog.LogI(TAG, "[SMOOTHING] Discesa rilevata. Differenza corretta con descent_factor: " + String.format(Locale.US, "%.2f", adjustedDifference));
+            }
+
+            // 3. Applicazione del fattore di correzione per reattività
+            double rawDifference = currentSgv.raw - smoothedValue;
+            smoothedValue += rawDifference * correctionFactor;
+            EselLog.LogI(TAG, "[SMOOTHING] Valore corretto con correction_factor. Nuovo valore: " + Math.round(smoothedValue));
+
+            return (int) Math.round(smoothedValue);
+
+        } catch (NumberFormatException e) {
+            EselLog.LogE(TAG, "[SMOOTHING] Errore di parsing delle impostazioni. Uso il valore grezzo. " + e.getMessage());
+            return currentSgv.raw;
+        }
+    }
+
     private void calculateTrend(SGV sgv) {
         long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
-        int lastSentRawValue = SP.getInt(KEY_LAST_SGV_RAW_VALUE, -1);
         int lastSentFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
 
         if (lastSgvTimestamp <= 0 || lastSentFinalValue == -1) {
@@ -220,13 +301,7 @@ public class DataMonitorService extends Service {
             return;
         }
 
-        SGV sgvForSlope = new SGV(sgv.raw, sgv.timestamp, 0);
-        boolean smoothing_enabled = SP.getBoolean("smooth_data", false);
-        if (smoothing_enabled && lastSentRawValue != -1) {
-            sgvForSlope.smooth(lastSentRawValue);
-        }
-
-        double slopeByMinute = (double) (sgvForSlope.value - lastSentFinalValue) * 60000.0d / (double) timeDiff;
+        double slopeByMinute = (double) (sgv.value - lastSentFinalValue) * 60000.0d / (double) timeDiff;
 
         if (slopeByMinute <= -3.5) {
             sgv.direction = "DoubleDown";
@@ -289,7 +364,7 @@ public class DataMonitorService extends Service {
             String newHistoryJson = gson.toJson(history);
             SP.putString(KEY_SGV_HISTORY_JSON, newHistoryJson);
         } catch (Exception e) {
-            android.util.Log.e(TAG, "Errore durante l'aggiornamento della cronologia SGV", e);
+            EselLog.LogE(TAG, "Errore durante l'aggiornamento della cronologia SGV: " + e.getMessage());
         }
     }
 

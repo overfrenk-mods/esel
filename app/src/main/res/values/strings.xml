@@ -91,4 +91,11 @@
     <string name="settings_restart_notification_summary">Notify if the service restarts too often</string>
     <string name="settings_log_size_title">Log Size</string>
     <string name="settings_log_size_summary">Set the maximum number of lines in the log file</string>
+
+    <string name="smooth_data_title">Enable Data Smoothing</string>
+    <string name="smooth_data_summary">Smooths out readings for a more stable and less \'noisy\' glucose curve.</string>
+    <string name="smoothing_level_title">Smoothing Level</string>
+    <string name="lower_limit_title">Lower Limit for Smoothing</string>
+    <string name="lower_limit_summary">Below this value (mg/dL), smoothing is disabled for safety. Default: 65</string>
+    <string name="lower_limit_dialog_title">Lower Limit (mg/dL)</string>
 </resources>

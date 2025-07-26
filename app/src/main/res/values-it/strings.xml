@@ -93,4 +93,11 @@
     <string name="settings_restart_notification_summary">Notifica se il servizio si riavvia troppo spesso</string>
     <string name="settings_log_size_title">Dimensione Log</string>
     <string name="settings_log_size_summary">Imposta il numero massimo di righe nel file di log</string>
+
+    <string name="smooth_data_title">Attiva Smoothing Dati</string>
+    <string name="smooth_data_summary">Smussa le letture per una curva glicemica più stabile e meno \'rumorosa\'.</string>
+    <string name="smoothing_level_title">Livello di Smoothing</string>
+    <string name="lower_limit_title">Limite Inferiore Smoothing</string>
+    <string name="lower_limit_summary">Sotto questo valore (mg/dL), lo smoothing è disattivato per sicurezza. Default: 65</string>
+    <string name="lower_limit_dialog_title">Limite Inferiore (mg/dL)</string>
 </resources>
