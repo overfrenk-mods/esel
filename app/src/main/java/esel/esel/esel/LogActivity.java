@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE CON FUNZIONE DI CONDIVISIONE CORRETTA ----------
+// ---------- CODICE CON FIX DEFINITIVO PER LA CONDIVISIONE DEL LOG ----------
 package esel.esel.esel;
 
 import android.content.Intent;
@@ -79,9 +79,8 @@ public class LogActivity extends AppCompatActivity {
         logAdapter.submitList(filteredList);
     }
 
-    // --- METODO DI CONDIVISIONE MODIFICATO ---
+    // --- METODO DI CONDIVISIONE CORRETTO ---
     private void shareLogFile() {
-        // 1. Chiamiamo il nuovo metodo che unisce tutti i file di log
         List<String> completeLog = appLogger.getCompleteLogForSharing();
 
         if (completeLog.isEmpty()) {
@@ -90,19 +89,21 @@ public class LogActivity extends AppCompatActivity {
         }
 
         try {
-            // 2. Creiamo un singolo file temporaneo nella cache dell'app
-            File cachePath = new File(getCacheDir(), "logs");
-            cachePath.mkdirs();
-            File tempFile = new File(cachePath, "eversense_reader_log.txt");
+            // 1. Usiamo la cartella principale dei file, non la cache
+            File filesPath = getFilesDir();
+            // Creiamo una sottocartella "shared_logs" per pulizia (opzionale ma consigliato)
+            File shareDir = new File(filesPath, "shared_logs");
+            shareDir.mkdirs();
+            File tempFile = new File(shareDir, "eversense_reader_log.txt");
 
-            // 3. Scriviamo tutte le righe del log nel file temporaneo
+            // 2. Scriviamo il log completo nel nostro file temporaneo
             try (FileWriter writer = new FileWriter(tempFile)) {
                 for (String line : completeLog) {
                     writer.append(line).append("\n");
                 }
             }
 
-            // 4. Condividiamo il file temporaneo appena creato
+            // 3. Condividiamo il file dalla nuova posizione sicura
             Uri logUri = FileProvider.getUriForFile(
                     this,
                     BuildConfig.APPLICATION_ID + ".provider",
@@ -118,7 +119,7 @@ public class LogActivity extends AppCompatActivity {
 
         } catch (IOException e) {
             Toast.makeText(this, R.string.log_toast_share_error, Toast.LENGTH_SHORT).show();
-            EselLog.LogE("LogActivity", "Errore I/O durante la creazione del file di log temporaneo: " + e.getMessage());
+            EselLog.LogE("LogActivity", "Errore I/O durante la creazione del file di log per la condivisione: " + e.getMessage());
         } catch (Exception e) {
             Toast.makeText(this, R.string.log_toast_share_error, Toast.LENGTH_SHORT).show();
             EselLog.LogE("LogActivity", "Errore generico condivisione log: " + e.getMessage());

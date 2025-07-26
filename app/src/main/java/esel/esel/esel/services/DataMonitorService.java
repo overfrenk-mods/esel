@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE CON SMOOTHING "EASY" A LIVELLI PREIMPOSTATI ----------
+// ---------- CODICE CON FIX DEFINITIVO E SALVATAGGIO SINCRONO DEL TIMESTAMP ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -151,9 +151,8 @@ public class DataMonitorService extends Service {
             EselLog.LogW(TAG, "WakeLock acquisito per l'elaborazione dei dati.");
         }
         try {
-            long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
-
             if (!isManualOverride) {
+                long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
                 long timeSinceLastSgv = sgv.timestamp - lastSgvTimestamp;
 
                 if (lastSgvTimestamp > 0 && timeSinceLastSgv > LONG_PAUSE_THRESHOLD_MS) {
@@ -171,10 +170,8 @@ public class DataMonitorService extends Service {
 
             EselLog.LogI(TAG, "SGV(" + sgv.raw + ") ha superato i filtri. Inizio elaborazione.");
 
-            // --- NUOVA LOGICA DI SMOOTHING "EASY" ---
             int finalValue = applyEasySmoothing(sgv);
-            sgv.value = finalValue; // Aggiorniamo il valore dell'SGV con quello finale (smussato o grezzo)
-            // --- FINE NUOVA LOGICA ---
+            sgv.value = finalValue;
 
             calculateTrend(sgv);
 
@@ -183,10 +180,14 @@ public class DataMonitorService extends Service {
             if (SP.getBoolean("send_to_AAPS", true)) { AapsSender.sendToAaps(getApplicationContext(), sgv); }
             if (SP.getBoolean("send_to_NS", false)) { AapsSender.sendToNsClient(getApplicationContext(), sgv); }
 
+            // --- FIX DEFINITIVO CON SALVATAGGIO SINCRONO ---
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
+            prefs.edit().putLong(KEY_LAST_SGV_TIMESTAMP, sgv.timestamp).commit();
+            // --- FINE FIX ---
+
             SP.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, System.currentTimeMillis());
-            SP.putLong(KEY_LAST_SGV_TIMESTAMP, sgv.timestamp);
             SP.putInt(KEY_LAST_SGV_RAW_VALUE, sgv.raw);
-            SP.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.value); // Salviamo il valore finale (potrebbe essere smussato)
+            SP.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.value);
 
             updateSgvHistory(sgv);
 
@@ -211,7 +212,6 @@ public class DataMonitorService extends Service {
 
         boolean smoothingEnabled = prefs.getBoolean("smooth_data", false);
         if (!smoothingEnabled) {
-            EselLog.LogI(TAG, "[SMOOTHING] Disabilitato. Uso il valore grezzo: " + currentSgv.raw);
             return currentSgv.raw;
         }
 
@@ -227,7 +227,6 @@ public class DataMonitorService extends Service {
             double correctionFactor;
             double descentFactor;
 
-            // Impostiamo i coefficienti in base al livello scelto
             switch (level) {
                 case "soft":
                     smoothFactor = 0.5;
@@ -262,18 +261,15 @@ public class DataMonitorService extends Service {
 
             EselLog.LogI(TAG, "[SMOOTHING] START -> Grezzo: " + currentSgv.raw + ", Ultimo Finale: " + lastFinalValue);
 
-            // 1. Calcolo del valore smussato di base (EMA)
             double smoothedValue = (currentSgv.raw * smoothFactor) + (lastFinalValue * (1 - smoothFactor));
 
-            // 2. Applicazione del fattore di discesa per sicurezza
             double difference = smoothedValue - lastFinalValue;
-            if (difference < 0) { // Se la glicemia sta scendendo
+            if (difference < 0) {
                 double adjustedDifference = difference * (1 - descentFactor);
                 smoothedValue = lastFinalValue + adjustedDifference;
                 EselLog.LogI(TAG, "[SMOOTHING] Discesa rilevata. Differenza corretta con descent_factor: " + String.format(Locale.US, "%.2f", adjustedDifference));
             }
 
-            // 3. Applicazione del fattore di correzione per reattività
             double rawDifference = currentSgv.raw - smoothedValue;
             smoothedValue += rawDifference * correctionFactor;
             EselLog.LogI(TAG, "[SMOOTHING] Valore corretto con correction_factor. Nuovo valore: " + Math.round(smoothedValue));
