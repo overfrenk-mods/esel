@@ -1,9 +1,10 @@
-// ---------- CODICE CON FIX DEFINITIVO PER SYNC MANUALE E ANTI-TEMPESTA ----------
+// ---------- CODICE CORRETTO PER IL COSTRUTTORE SGV ----------
 package esel.esel.esel.datareader;
 
 import android.app.Notification;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
@@ -17,6 +18,7 @@ import java.util.StringJoiner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
 
@@ -33,29 +35,35 @@ public class EsNotificationListener extends NotificationListenerService {
     private static volatile long lastProcessTimeMs = 0;
     private static final long NOTIFICATION_COOLDOWN_MS = 15000; // 15 secondi
 
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && DataMonitorService.ACTION_REQUEST_SGV_READ.equals(intent.getAction())) {
+            EselLog.LogW(TAG, "Ricevuta richiesta di lettura proattiva da DataMonitorService. Scansiono le notifiche...");
+            readActiveNotifications();
+        }
+        return START_STICKY;
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return super.onBind(intent);
+    }
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
-        if (SP.getBoolean("use_patched_es", false)) return;
-
-        String packageName = sbn.getPackageName();
-        if (packageName == null || !packageName.startsWith("com.senseonics")) return;
+        if (!shouldReadNotification(sbn)) return;
 
         Notification notification = sbn.getNotification();
         if (notification == null) return;
 
         String fullText = extractFullText(notification);
         if (fullText.isEmpty()) {
-            EselLog.LogW(TAG, "Notifica ricevuta ma il testo è vuoto.");
+            EselLog.LogW(TAG, "Notifica Senseonics ricevuta ma il testo è vuoto.");
             return;
         }
 
-        // --- FIX PER IL SYNC MANUALE ---
-        // Salviamo SEMPRE l'ultima notifica vista, PRIMA di applicare qualsiasi filtro.
-        // In questo modo, il sync manuale avrà sempre a disposizione il dato più fresco.
         SP.putString(KEY_LAST_SEEN_NOTIFICATION_TEXT, fullText);
         SP.putLong(KEY_LAST_SEEN_NOTIFICATION_WHEN, notification.when);
-        // --- FINE FIX ---
 
         long now = System.currentTimeMillis();
         if (now - lastProcessTimeMs < NOTIFICATION_COOLDOWN_MS) {
@@ -64,14 +72,59 @@ public class EsNotificationListener extends NotificationListenerService {
         }
         lastProcessTimeMs = now;
 
-        SGV sgv = generateSGVFromText(fullText, now);
+        SGV sgv = generateSGVFromText(fullText, notification.when);
         if (sgv == null) {
             EselLog.LogW(TAG, "Nessun valore glicemico valido trovato nel testo: \"" + fullText + "\"");
             return;
         }
 
+        broadcastSGV(sgv);
+    }
+
+    private void readActiveNotifications() {
+        StatusBarNotification[] activeNotifications;
+        try {
+            activeNotifications = getActiveNotifications();
+        } catch (Exception e) {
+            EselLog.LogE(TAG, "Impossibile ottenere le notifiche attive: " + e.getMessage());
+            return;
+        }
+
+        if (activeNotifications != null) {
+            for (StatusBarNotification sbn : activeNotifications) {
+                if (shouldReadNotification(sbn)) {
+                    EselLog.LogI(TAG, "Trovata notifica Senseonics nella lista attiva tramite trigger. Estraggo i dati.");
+                    Notification notification = sbn.getNotification();
+                    if (notification == null) continue;
+
+                    String fullText = extractFullText(notification);
+                    if(fullText.isEmpty()) continue;
+
+                    SP.putString(KEY_LAST_SEEN_NOTIFICATION_TEXT, fullText);
+                    SP.putLong(KEY_LAST_SEEN_NOTIFICATION_WHEN, notification.when);
+
+                    SGV sgv = generateSGVFromText(fullText, notification.when);
+                    if (sgv != null) {
+                        broadcastSGV(sgv);
+                        return;
+                    }
+                }
+            }
+        }
+        EselLog.LogI(TAG, "Nessuna notifica Senseonics trovata tra quelle attive.");
+    }
+
+    private boolean shouldReadNotification(StatusBarNotification sbn) {
+        if (SP.getBoolean("use_patched_es", false)) return false;
+        if (sbn == null) return false;
+        String packageName = sbn.getPackageName();
+        return packageName != null && packageName.startsWith("com.senseonics");
+    }
+
+    private void broadcastSGV(SGV sgv) {
         SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
         EselLog.LogI(TAG, "Notifica valida catturata -> Valore: " + sgv.value + " | Timestamp: " + sdf.format(new Date(sgv.timestamp)) + ". Invio broadcast...");
+
         Intent serviceIntent = new Intent(ACTION_NEW_SGV_DATA);
         serviceIntent.putExtra(EXTRA_SGV_DATA, sgv);
         LocalBroadcastManager.getInstance(this).sendBroadcast(serviceIntent);
@@ -105,7 +158,6 @@ public class EsNotificationListener extends NotificationListenerService {
         return joiner.toString();
     }
 
-
     public static SGV generateSGVFromText(String textToParse, long timestamp) {
         Matcher matcher = VALUE_PATTERN.matcher(textToParse);
         String valueString = null;
@@ -125,7 +177,10 @@ public class EsNotificationListener extends NotificationListenerService {
         }
 
         if (value >= 40 && value <= 400) {
+            // --- FIX ---
+            // Ripristinato il costruttore corretto che richiede 3 argomenti.
             return new SGV(value, timestamp, 0);
+            // --- FINE FIX ---
         } else {
             EselLog.LogW(TAG, "Valore estratto (" + value + ") fuori dal range ufficiale (40-400). Scartato.");
             return null;
