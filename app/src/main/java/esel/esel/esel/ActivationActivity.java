@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE CON URL CORRETTO E LOGGING AVANZATO ----------
+// ---------- CODICE CORRETTO CON IMPORT MANCANTE ----------
 package esel.esel.esel;
 
 import android.content.Context;
@@ -16,13 +16,12 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
-import androidx.annotation.NonNull;
+
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.NotificationManagerCompat;
 
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.Locale;
@@ -31,7 +30,9 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+// --- MODIFICA INIZIO: Aggiunto import mancante per il servizio di accessibilità ---
 import esel.esel.esel.services.StabilityService;
+// --- MODIFICA FINE ---
 import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
 

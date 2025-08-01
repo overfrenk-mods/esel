@@ -51,6 +51,7 @@
         <receiver android:name=".receivers.WatchdogReceiver" android:enabled="true" android:exported="false" />
 
         <receiver android:name=".receivers.FastPatrolReceiver" android:enabled="true" android:exported="false" />
+
         <service android:name=".datareader.EsNotificationListener"
             android:exported="true"
             android:label="@string/EsNotificationListener_name"
@@ -66,6 +67,11 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <service
+            android:name=".services.CompanionService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <service
             android:name=".services.StabilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
