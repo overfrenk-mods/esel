@@ -100,4 +100,8 @@
     <string name="lower_limit_title">Limite Inferiore Smoothing</string>
     <string name="lower_limit_summary">Sotto questo valore (mg/dL), lo smoothing è disattivato per sicurezza. Default: 65</string>
     <string name="lower_limit_dialog_title">Limite Inferiore (mg/dL)</string>
+
+    <string name="log_search_hint">Filtra per TAG o testo...</string>
+    <string name="log_menu_filter_verbose">Verbose</string>
+    <string name="log_menu_filter_restart">Restart</string>
 </resources>

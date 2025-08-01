@@ -1,12 +1,15 @@
-// ---------- CODICE CON FIX DEFINITIVO PER LA CONDIVISIONE DEL LOG ----------
+// ---------- CODICE FINALE CON FILTRO DINAMICO PER TESTO E TAG ----------
 package esel.esel.esel;
 
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.Toast;
+import com.google.android.material.textfield.TextInputEditText;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -22,6 +25,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import esel.esel.esel.util.EselLog;
 
@@ -31,8 +35,10 @@ public class LogActivity extends AppCompatActivity {
     private LogAdapter logAdapter;
     private AppLogger appLogger;
 
+    private TextInputEditText searchEditText;
     private List<String> allLogLines = new ArrayList<>();
-    private String currentFilter = "ALL";
+    private String currentLevelFilter = "ALL"; // Filtro per livello (dal menu)
+    private String currentSearchTerm = "";   // Filtro per testo (dalla barra di ricerca)
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,6 +53,8 @@ public class LogActivity extends AppCompatActivity {
         }
 
         setupRecyclerView();
+        // Correttamente inizializza la barra di ricerca
+        setupSearch();
 
         appLogger = AppLogger.getInstance(getApplicationContext());
 
@@ -65,21 +73,47 @@ public class LogActivity extends AppCompatActivity {
         logRecyclerView.setAdapter(logAdapter);
     }
 
-    private void updateDisplayedLogs() {
-        List<String> filteredList;
+    // Correttamente implementa il listener per la ricerca in tempo reale
+    private void setupSearch() {
+        searchEditText = findViewById(R.id.log_search_edit_text);
+        searchEditText.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
 
-        if (currentFilter.equals("ALL")) {
-            filteredList = allLogLines;
-        } else {
-            filteredList = allLogLines.stream()
-                    .filter(line -> line.contains("[" + currentFilter + "]"))
-                    .collect(Collectors.toList());
-        }
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                currentSearchTerm = s.toString();
+                updateDisplayedLogs();
+            }
 
-        logAdapter.submitList(filteredList);
+            @Override
+            public void afterTextChanged(Editable s) { }
+        });
     }
 
-    // --- METODO DI CONDIVISIONE CORRETTO ---
+    // Correttamente implementa la logica di doppio filtro (livello + testo)
+    private void updateDisplayedLogs() {
+        Stream<String> stream = allLogLines.stream();
+
+        // 1. Applica il filtro per LIVELLO
+        if (!currentLevelFilter.equals("ALL")) {
+            stream = stream.filter(line -> line.contains("[" + currentLevelFilter + "]"));
+        }
+
+        // 2. Applica il filtro per TESTO LIBERO
+        if (!currentSearchTerm.isEmpty()) {
+            String lowerCaseTerm = currentSearchTerm.toLowerCase();
+            stream = stream.filter(line -> line.toLowerCase().contains(lowerCaseTerm));
+        }
+
+        List<String> filteredList = stream.collect(Collectors.toList());
+
+        logAdapter.submitList(filteredList);
+        if (!filteredList.isEmpty()) {
+            logRecyclerView.scrollToPosition(0);
+        }
+    }
+
     private void shareLogFile() {
         List<String> completeLog = appLogger.getCompleteLogForSharing();
 
@@ -89,21 +123,17 @@ public class LogActivity extends AppCompatActivity {
         }
 
         try {
-            // 1. Usiamo la cartella principale dei file, non la cache
             File filesPath = getFilesDir();
-            // Creiamo una sottocartella "shared_logs" per pulizia (opzionale ma consigliato)
             File shareDir = new File(filesPath, "shared_logs");
             shareDir.mkdirs();
             File tempFile = new File(shareDir, "eversense_reader_log.txt");
 
-            // 2. Scriviamo il log completo nel nostro file temporaneo
             try (FileWriter writer = new FileWriter(tempFile)) {
                 for (String line : completeLog) {
                     writer.append(line).append("\n");
                 }
             }
 
-            // 3. Condividiamo il file dalla nuova posizione sicura
             Uri logUri = FileProvider.getUriForFile(
                     this,
                     BuildConfig.APPLICATION_ID + ".provider",
@@ -139,8 +169,12 @@ public class LogActivity extends AppCompatActivity {
         return true;
     }
 
+    // Correttamente gestisce tutti i nuovi item del menu
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
+        searchEditText.setText("");
+        currentSearchTerm = "";
+
         int itemId = item.getItemId();
 
         if (itemId == R.id.action_clear_log) {
@@ -150,19 +184,27 @@ public class LogActivity extends AppCompatActivity {
             shareLogFile();
             return true;
         } else if (itemId == R.id.filter_all) {
-            currentFilter = "ALL";
+            currentLevelFilter = "ALL";
             updateDisplayedLogs();
             return true;
         } else if (itemId == R.id.filter_info) {
-            currentFilter = "Info";
+            currentLevelFilter = "I";
             updateDisplayedLogs();
             return true;
         } else if (itemId == R.id.filter_warning) {
-            currentFilter = "Warning";
+            currentLevelFilter = "W";
             updateDisplayedLogs();
             return true;
         } else if (itemId == R.id.filter_error) {
-            currentFilter = "Error";
+            currentLevelFilter = "E";
+            updateDisplayedLogs();
+            return true;
+        } else if (itemId == R.id.filter_verbose) {
+            currentLevelFilter = "V";
+            updateDisplayedLogs();
+            return true;
+        } else if (itemId == R.id.filter_restart) {
+            currentLevelFilter = "RESTART";
             updateDisplayedLogs();
             return true;
         }

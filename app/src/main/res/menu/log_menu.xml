@@ -24,6 +24,9 @@
             <item android:id="@+id/filter_info" android:title="@string/log_menu_filter_info"/>
             <item android:id="@+id/filter_warning" android:title="@string/log_menu_filter_warning"/>
             <item android:id="@+id/filter_error" android:title="@string/log_menu_filter_error"/>
+
+            <item android:id="@+id/filter_verbose" android:title="@string/log_menu_filter_verbose"/>
+            <item android:id="@+id/filter_restart" android:title="@string/log_menu_filter_restart"/>
         </menu>
     </item>
 
