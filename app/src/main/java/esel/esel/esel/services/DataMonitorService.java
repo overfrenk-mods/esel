@@ -1,4 +1,4 @@
-// ---------- CODICE CON FIX AL METODO DI LOG ----------
+// ---------- CODICE CON INTEGRAZIONE DELLA "PATTUGLIA VELOCE" ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -41,6 +41,10 @@ import esel.esel.esel.MainActivity;
 import esel.esel.esel.R;
 import esel.esel.esel.datareader.SGV;
 import esel.esel.esel.datareader.EsNotificationListener;
+// --- MODIFICA INIZIO ---
+// Importiamo il nostro nuovo ricevitore
+import esel.esel.esel.receivers.FastPatrolReceiver;
+// --- MODIFICA FINE ---
 import esel.esel.esel.receivers.ServiceRestarter;
 import esel.esel.esel.receivers.WatchdogReceiver;
 import esel.esel.esel.util.AapsSender;
@@ -96,7 +100,12 @@ public class DataMonitorService extends Service {
 
         createNotificationChannel();
         setupSgvDataReceiver();
-        WatchdogReceiver.scheduleNextWatchdog(this);
+
+        // --- MODIFICA INIZIO: Avviamo ENTRAMBI i sistemi di sorveglianza ---
+        WatchdogReceiver.scheduleNextWatchdog(this); // Il "Guardiano" (15 min)
+        FastPatrolReceiver.schedule(this);           // La "Pattuglia Veloce" (4 min)
+        // --- MODIFICA FINE ---
+
         startSyncTrigger();
 
         SP.putBoolean("service_should_be_running", true);
@@ -318,6 +327,14 @@ public class DataMonitorService extends Service {
         syncTriggerRunnable = new Runnable() {
             @Override
             public void run() {
+                // --- MODIFICA INIZIO: Prova di vita ---
+                // Se questo codice è in esecuzione, significa che il servizio è vivo.
+                // Diamo un "calcio" alla schedulazione della pattuglia veloce, posticipandola
+                // di altri 4 minuti a partire da adesso. In questo modo, finché il servizio
+                // funziona, l'allarme della pattuglia non scatterà mai.
+                FastPatrolReceiver.schedule(getApplicationContext());
+                // --- MODIFICA FINE ---
+
                 EselLog.LogI(TAG, "Sync Trigger: Richiesta proattiva di lettura dati.");
                 requestSgvFromListener();
 
@@ -342,10 +359,7 @@ public class DataMonitorService extends Service {
 
     private void requestSgvFromListener() {
         try {
-            // --- FIX ---
-            // Sostituito LogD con LogI, che è un metodo esistente nella classe EselLog
             EselLog.LogI(TAG, "Invio comando a EsNotificationListener per forzare la lettura.");
-            // --- FINE FIX ---
             Intent requestIntent = new Intent(this, EsNotificationListener.class);
             requestIntent.setAction(ACTION_REQUEST_SGV_READ);
             startService(requestIntent);
@@ -387,7 +401,12 @@ public class DataMonitorService extends Service {
         SP.putBoolean("service_should_be_running", false);
         SP.putBoolean("enable_service", false);
         stopSyncTrigger();
+
+        // --- MODIFICA INIZIO: Cancelliamo ENTRAMBI i sistemi di sorveglianza ---
         WatchdogReceiver.cancelWatchdog(this);
+        FastPatrolReceiver.cancel(this);
+        // --- MODIFICA FINE ---
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE);
         } else {

@@ -50,6 +50,7 @@
         <receiver android:name=".receivers.ServiceRestarter" android:enabled="true" android:exported="false" />
         <receiver android:name=".receivers.WatchdogReceiver" android:enabled="true" android:exported="false" />
 
+        <receiver android:name=".receivers.FastPatrolReceiver" android:enabled="true" android:exported="false" />
         <service android:name=".datareader.EsNotificationListener"
             android:exported="true"
             android:label="@string/EsNotificationListener_name"
