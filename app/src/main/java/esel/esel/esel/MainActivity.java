@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE SENZA INIZIALIZZAZIONE RIDONDANTE DEL LOGGER ----------
+// ---------- CODICE CON LOG DI AVVIO CORRETTO (INFO INVECE DI RESTART) ----------
 package esel.esel.esel;
 
 import android.Manifest;
@@ -50,8 +50,6 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // --- RIGA CHE CAUSAVA L'ERRORE RIMOSSA ---
-
         Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
         if (getSupportActionBar() != null) {
@@ -75,7 +73,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void checkPermissionsAndStartService() {
         if (areAllPermissionsGranted() && SP.getBoolean("enable_service", true)) {
-            EselLog.LogR(TAG, "Permessi OK e servizio abilitato. Avvio il DataMonitorService...");
+            // --- MODIFICA INIZIO: Cambiato LogR in LogI per evitare confusione ---
+            EselLog.LogI(TAG, "Permessi OK e servizio abilitato. Avvio il DataMonitorService...");
+            // --- MODIFICA FINE ---
             ContextCompat.startForegroundService(this, new Intent(this, DataMonitorService.class));
             scheduleRedundantWatchdog();
         } else if (!areAllPermissionsGranted()) {

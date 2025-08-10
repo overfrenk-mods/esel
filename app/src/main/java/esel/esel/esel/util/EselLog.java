@@ -1,4 +1,4 @@
-// ---------- CODICE CORRETTO, PULITO E DEFINITIVO CON LogR ----------
+// ---------- CODICE CON LOGR POTENZIATO COME ERRORE ----------
 package esel.esel.esel.util;
 
 import android.content.Context;
@@ -71,11 +71,13 @@ public final class EselLog {
     }
 
     /**
-     * Log speciale per Riavvi (R), per identificarli facilmente nel file.
+     * Log speciale per Riavvi (R). Ora viene loggato come ERRORE per massima visibilità.
      */
     public static void LogR(String tag, String message) {
         if (logger != null) {
-            logger.add("RESTART", tag, message);
+            // --- MODIFICA INIZIO: Logga come Errore [E] ma mantiene il testo [RESTART] ---
+            logger.add("E", tag, "[RESTART] " + message);
+            // --- MODIFICA FINE ---
         } else {
             Log.e(tag, "LOGGER_NOT_READY (RESTART): " + message);
         }

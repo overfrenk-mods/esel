@@ -1,4 +1,4 @@
-// ---------- CODICE CON INTEGRAZIONE DEL COMPANIONSERVICE (NOME CORRETTO) ----------
+// ---------- CODICE CON RITARDO INIZIALE DEL SYNC TRIGGER ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -65,6 +65,7 @@ public class DataMonitorService extends Service {
 
     private static final long TIMESTAMP_COOLDOWN_MS = 4 * 60 * 1000L;
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
+    private static final long INITIAL_TRIGGER_DELAY_MS = 15 * 1000L; // 15 secondi
 
     private ExecutorService executor;
     private BroadcastReceiver sgvDataReceiver;
@@ -89,7 +90,6 @@ public class DataMonitorService extends Service {
         super.onCreate();
         EselLog.LogI(TAG, "DataMonitorService onCreate.");
 
-        // --- MODIFICA INIZIO: Avvio del servizio compagno con il nome corretto ---
         try {
             Intent companionIntent = new Intent(this, CompanionService.class);
             ContextCompat.startForegroundService(this, companionIntent);
@@ -97,7 +97,6 @@ public class DataMonitorService extends Service {
         } catch (Exception e) {
             EselLog.LogE(TAG, "Impossibile avviare il CompanionService: " + e.getMessage());
         }
-        // --- MODIFICA FINE ---
 
         executor = Executors.newSingleThreadExecutor();
         gson = new Gson();
@@ -346,8 +345,10 @@ public class DataMonitorService extends Service {
                 EselLog.LogW(TAG, "Sync Trigger: Prossima esecuzione pianificata tra " + delay / 1000 + " secondi per allineamento all'orologio.");
             }
         };
-        syncTriggerHandler.post(syncTriggerRunnable);
-        EselLog.LogW(TAG, "Trigger di sincronizzazione proattiva avviato.");
+        // --- MODIFICA INIZIO: Ritardiamo la prima esecuzione del trigger ---
+        syncTriggerHandler.postDelayed(syncTriggerRunnable, INITIAL_TRIGGER_DELAY_MS);
+        EselLog.LogW(TAG, "Trigger di sincronizzazione proattiva avviato con un ritardo iniziale di " + (INITIAL_TRIGGER_DELAY_MS / 1000) + " secondi.");
+        // --- MODIFICA FINE ---
     }
 
     private void stopSyncTrigger() {
@@ -405,14 +406,12 @@ public class DataMonitorService extends Service {
         WatchdogReceiver.cancelWatchdog(this);
         FastPatrolReceiver.cancel(this);
 
-        // --- MODIFICA INIZIO: Fermiamo anche il servizio compagno con il nome corretto ---
         try {
             stopService(new Intent(this, CompanionService.class));
             EselLog.LogW(TAG, "Servizio Compagno fermato.");
         } catch (Exception e) {
             EselLog.LogE(TAG, "Impossibile fermare il CompanionService: " + e.getMessage());
         }
-        // --- MODIFICA FINE ---
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE);

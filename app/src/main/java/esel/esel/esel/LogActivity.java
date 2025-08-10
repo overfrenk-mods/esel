@@ -1,4 +1,4 @@
-// ---------- CODICE FINALE CON FILTRO DINAMICO PER TESTO E TAG ----------
+// ---------- CODICE CON FILTRO RESTART CORRETTO COME RICERCA PREIMPOSTATA ----------
 package esel.esel.esel;
 
 import android.content.Intent;
@@ -37,8 +37,8 @@ public class LogActivity extends AppCompatActivity {
 
     private TextInputEditText searchEditText;
     private List<String> allLogLines = new ArrayList<>();
-    private String currentLevelFilter = "ALL"; // Filtro per livello (dal menu)
-    private String currentSearchTerm = "";   // Filtro per testo (dalla barra di ricerca)
+    private String currentLevelFilter = "ALL";
+    private String currentSearchTerm = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -53,7 +53,6 @@ public class LogActivity extends AppCompatActivity {
         }
 
         setupRecyclerView();
-        // Correttamente inizializza la barra di ricerca
         setupSearch();
 
         appLogger = AppLogger.getInstance(getApplicationContext());
@@ -73,7 +72,6 @@ public class LogActivity extends AppCompatActivity {
         logRecyclerView.setAdapter(logAdapter);
     }
 
-    // Correttamente implementa il listener per la ricerca in tempo reale
     private void setupSearch() {
         searchEditText = findViewById(R.id.log_search_edit_text);
         searchEditText.addTextChangedListener(new TextWatcher() {
@@ -91,16 +89,13 @@ public class LogActivity extends AppCompatActivity {
         });
     }
 
-    // Correttamente implementa la logica di doppio filtro (livello + testo)
     private void updateDisplayedLogs() {
         Stream<String> stream = allLogLines.stream();
 
-        // 1. Applica il filtro per LIVELLO
         if (!currentLevelFilter.equals("ALL")) {
             stream = stream.filter(line -> line.contains("[" + currentLevelFilter + "]"));
         }
 
-        // 2. Applica il filtro per TESTO LIBERO
         if (!currentSearchTerm.isEmpty()) {
             String lowerCaseTerm = currentSearchTerm.toLowerCase();
             stream = stream.filter(line -> line.toLowerCase().contains(lowerCaseTerm));
@@ -169,11 +164,14 @@ public class LogActivity extends AppCompatActivity {
         return true;
     }
 
-    // Correttamente gestisce tutti i nuovi item del menu
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
-        searchEditText.setText("");
-        currentSearchTerm = "";
+        // Reset della ricerca testuale quando si usa un filtro dal menu,
+        // tranne per il caso speciale del filtro "Restart".
+        if (item.getItemId() != R.id.filter_restart) {
+            searchEditText.setText("");
+            currentSearchTerm = "";
+        }
 
         int itemId = item.getItemId();
 
@@ -203,11 +201,15 @@ public class LogActivity extends AppCompatActivity {
             currentLevelFilter = "V";
             updateDisplayedLogs();
             return true;
+            // --- MODIFICA INIZIO: Il filtro Restart ora è una ricerca preimpostata ---
         } else if (itemId == R.id.filter_restart) {
-            currentLevelFilter = "RESTART";
-            updateDisplayedLogs();
+            currentLevelFilter = "ALL"; // Mostra tutti i livelli...
+            currentSearchTerm = "[RESTART]"; // ...che contengono la parola [RESTART]
+            searchEditText.setText(currentSearchTerm); // Mostra il testo nella barra di ricerca
+            // updateDisplayedLogs() viene già chiamato dal TextWatcher di searchEditText
             return true;
         }
+        // --- MODIFICA FINE ---
 
         return super.onOptionsItemSelected(item);
     }
