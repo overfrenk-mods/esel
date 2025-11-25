@@ -1,4 +1,4 @@
-// ---------- CODICE CORRETTO PER IL COSTRUTTORE SGV ----------
+// ---------- CODICE LISTENER PULITO E STABILE (SOLO REATTIVO) ----------
 package esel.esel.esel.datareader;
 
 import android.app.Notification;
@@ -18,7 +18,6 @@ import java.util.StringJoiner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
 import esel.esel.esel.util.SP;
 
@@ -33,21 +32,7 @@ public class EsNotificationListener extends NotificationListenerService {
     private static final Pattern VALUE_PATTERN = Pattern.compile("(?<!\\d:)\\b(\\d+([,.]\\d+)?)\\b(?!:\\d)");
 
     private static volatile long lastProcessTimeMs = 0;
-    private static final long NOTIFICATION_COOLDOWN_MS = 15000; // 15 secondi
-
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && DataMonitorService.ACTION_REQUEST_SGV_READ.equals(intent.getAction())) {
-            EselLog.LogW(TAG, "Ricevuta richiesta di lettura proattiva da DataMonitorService. Scansiono le notifiche...");
-            readActiveNotifications();
-        }
-        return START_STICKY;
-    }
-
-    @Override
-    public IBinder onBind(Intent intent) {
-        return super.onBind(intent);
-    }
+    private static final long NOTIFICATION_COOLDOWN_MS = 15000; // 15 secondi anti-tempesta
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
@@ -62,12 +47,14 @@ public class EsNotificationListener extends NotificationListenerService {
             return;
         }
 
+        // Salviamo sempre l'ultima notifica per il Sync Manuale
         SP.putString(KEY_LAST_SEEN_NOTIFICATION_TEXT, fullText);
         SP.putLong(KEY_LAST_SEEN_NOTIFICATION_WHEN, notification.when);
 
+        // Filtro anti-tempesta basato sull'orario di arrivo (sicuro)
         long now = System.currentTimeMillis();
         if (now - lastProcessTimeMs < NOTIFICATION_COOLDOWN_MS) {
-            EselLog.LogI(TAG, "[DEBOUNCE] Notifica ignorata per cooldown temporale. (" + (now - lastProcessTimeMs) / 1000 + "s < 15s)");
+            EselLog.LogI(TAG, "[DEBOUNCE] Notifica ignorata per cooldown temporale (raffica). (" + (now - lastProcessTimeMs) / 1000 + "s < 15s)");
             return;
         }
         lastProcessTimeMs = now;
@@ -81,39 +68,6 @@ public class EsNotificationListener extends NotificationListenerService {
         broadcastSGV(sgv);
     }
 
-    private void readActiveNotifications() {
-        StatusBarNotification[] activeNotifications;
-        try {
-            activeNotifications = getActiveNotifications();
-        } catch (Exception e) {
-            EselLog.LogE(TAG, "Impossibile ottenere le notifiche attive: " + e.getMessage());
-            return;
-        }
-
-        if (activeNotifications != null) {
-            for (StatusBarNotification sbn : activeNotifications) {
-                if (shouldReadNotification(sbn)) {
-                    EselLog.LogI(TAG, "Trovata notifica Senseonics nella lista attiva tramite trigger. Estraggo i dati.");
-                    Notification notification = sbn.getNotification();
-                    if (notification == null) continue;
-
-                    String fullText = extractFullText(notification);
-                    if(fullText.isEmpty()) continue;
-
-                    SP.putString(KEY_LAST_SEEN_NOTIFICATION_TEXT, fullText);
-                    SP.putLong(KEY_LAST_SEEN_NOTIFICATION_WHEN, notification.when);
-
-                    SGV sgv = generateSGVFromText(fullText, notification.when);
-                    if (sgv != null) {
-                        broadcastSGV(sgv);
-                        return;
-                    }
-                }
-            }
-        }
-        EselLog.LogI(TAG, "Nessuna notifica Senseonics trovata tra quelle attive.");
-    }
-
     private boolean shouldReadNotification(StatusBarNotification sbn) {
         if (SP.getBoolean("use_patched_es", false)) return false;
         if (sbn == null) return false;
@@ -123,7 +77,7 @@ public class EsNotificationListener extends NotificationListenerService {
 
     private void broadcastSGV(SGV sgv) {
         SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
-        EselLog.LogI(TAG, "Notifica valida catturata -> Valore: " + sgv.value + " | Timestamp: " + sdf.format(new Date(sgv.timestamp)) + ". Invio broadcast...");
+        EselLog.LogI(TAG, "Notifica valida catturata -> Valore: " + sgv.value + " | Timestamp Origine: " + sdf.format(new Date(sgv.timestamp)) + ". Invio broadcast...");
 
         Intent serviceIntent = new Intent(ACTION_NEW_SGV_DATA);
         serviceIntent.putExtra(EXTRA_SGV_DATA, sgv);
@@ -177,10 +131,7 @@ public class EsNotificationListener extends NotificationListenerService {
         }
 
         if (value >= 40 && value <= 400) {
-            // --- FIX ---
-            // Ripristinato il costruttore corretto che richiede 3 argomenti.
             return new SGV(value, timestamp, 0);
-            // --- FINE FIX ---
         } else {
             EselLog.LogW(TAG, "Valore estratto (" + value + ") fuori dal range ufficiale (40-400). Scartato.");
             return null;
@@ -197,5 +148,10 @@ public class EsNotificationListener extends NotificationListenerService {
     public void onListenerDisconnected() {
         super.onListenerDisconnected();
         EselLog.LogW(TAG, "Notification Listener disconnesso.");
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return super.onBind(intent);
     }
 }

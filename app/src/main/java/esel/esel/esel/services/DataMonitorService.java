@@ -1,4 +1,4 @@
-// ---------- CODICE CON RITARDO INIZIALE DEL SYNC TRIGGER ----------
+// ---------- CODICE VERSIONE "FORCE TIME" PULITA (NO SYNC TRIGGER) ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -13,10 +13,9 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
-import android.os.Handler;
 import android.os.IBinder;
-import android.os.Looper;
 import android.os.PowerManager;
+import android.util.Log;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
@@ -54,7 +53,7 @@ public class DataMonitorService extends Service {
     public static final int NOTIFICATION_ID = 101;
     public static final String ACTION_STOP_SERVICE = "esel.esel.esel.ACTION_STOP_SERVICE";
     public static final String ACTION_MANUAL_SYNC = "esel.esel.esel.ACTION_MANUAL_SYNC";
-    public static final String ACTION_REQUEST_SGV_READ = "esel.esel.esel.ACTION_REQUEST_SGV_READ";
+    // Rimossa ACTION_REQUEST_SGV_READ
     public static final int WATCHDOG_REQUEST_CODE = 901;
 
     public static final String KEY_LAST_SUCCESSFUL_SEND_MS = "status_last_successful_send_ms";
@@ -63,17 +62,16 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
 
+    // Cooldown a 4 minuti per gestire le raffiche
     private static final long TIMESTAMP_COOLDOWN_MS = 4 * 60 * 1000L;
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
-    private static final long INITIAL_TRIGGER_DELAY_MS = 15 * 1000L; // 15 secondi
 
     private ExecutorService executor;
     private BroadcastReceiver sgvDataReceiver;
     private PowerManager.WakeLock wakeLock;
     private Gson gson;
 
-    private Handler syncTriggerHandler;
-    private Runnable syncTriggerRunnable;
+    // Rimossi Handler e Runnable del Sync Trigger
 
     public static class SgvHistoryPoint {
         public long timestamp;
@@ -100,10 +98,15 @@ public class DataMonitorService extends Service {
 
         executor = Executors.newSingleThreadExecutor();
         gson = new Gson();
-        syncTriggerHandler = new Handler(Looper.getMainLooper());
+        // Rimosso syncTriggerHandler
 
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "EselReader::DataProcessingWakeLock");
+        if (powerManager != null) {
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "EselReader::DataProcessingWakeLock");
+        } else {
+            EselLog.LogE(TAG, "PowerManager non disponibile!");
+            wakeLock = null;
+        }
 
         createNotificationChannel();
         setupSgvDataReceiver();
@@ -111,14 +114,28 @@ public class DataMonitorService extends Service {
         WatchdogReceiver.scheduleNextWatchdog(this);
         FastPatrolReceiver.schedule(this);
 
-        startSyncTrigger();
+        // Rimosso startSyncTrigger()
 
         SP.putBoolean("service_should_be_running", true);
         Notification notification = buildNotification(getString(R.string.notification_persistent_text_waiting));
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+            try {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+            } catch (Exception e) {
+                EselLog.LogE(TAG, "Errore startForeground con tipo: " + e.getMessage() + ". Tento senza tipo.");
+                try {
+                    startForeground(NOTIFICATION_ID, notification);
+                } catch (Exception e2) {
+                    EselLog.LogE(TAG, "Errore startForeground senza tipo: " + e2.getMessage());
+                }
+            }
         } else {
-            startForeground(NOTIFICATION_ID, notification);
+            try {
+                startForeground(NOTIFICATION_ID, notification);
+            } catch (Exception e) {
+                EselLog.LogE(TAG, "Errore startForeground pre-Q: " + e.getMessage());
+            }
         }
     }
 
@@ -160,11 +177,24 @@ public class DataMonitorService extends Service {
     }
 
     private void processSgv(SGV sgv, boolean isManualOverride) {
+        boolean wakeLockAcquired = false;
         if (wakeLock != null && !wakeLock.isHeld()) {
-            wakeLock.acquire(20 * 1000L);
-            EselLog.LogW(TAG, "WakeLock acquisito per l'elaborazione dei dati.");
+            try {
+                wakeLock.acquire(20 * 1000L);
+                wakeLockAcquired = true;
+                EselLog.LogW(TAG, "WakeLock acquisito per l'elaborazione dei dati.");
+            } catch (Exception e) {
+                EselLog.LogE(TAG, "Errore acquisizione WakeLock: " + e.getMessage());
+            }
         }
+
         try {
+            // --- FORCE TIME (SOLUZIONE 3.0.4) ---
+            long originalNotificationTime = sgv.timestamp;
+            sgv.timestamp = System.currentTimeMillis(); // Usa orario sistema
+            EselLog.LogI(TAG, "[FORCE TIME] TS Orig: " + new Date(originalNotificationTime) + " -> TS Sistema: " + new Date(sgv.timestamp));
+            // ------------------------------------
+
             if (!isManualOverride) {
                 long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
                 long timeSinceLastSgv = sgv.timestamp - lastSgvTimestamp;
@@ -174,8 +204,20 @@ public class DataMonitorService extends Service {
                     SP.putLong(KEY_LAST_SGV_TIMESTAMP, 0L);
                     SP.putInt(KEY_LAST_SGV_RAW_VALUE, -1);
                     SP.putInt(KEY_LAST_SGV_FINAL_VALUE, -1);
-                } else if (lastSgvTimestamp > 0 && timeSinceLastSgv < TIMESTAMP_COOLDOWN_MS) {
-                    EselLog.LogI(TAG, "[FILTRO] Dato scartato per cooldown. Intervallo: " + (timeSinceLastSgv / 1000) + "s < " + (TIMESTAMP_COOLDOWN_MS / 1000) + "s");
+                    lastSgvTimestamp = 0L;
+                    timeSinceLastSgv = Long.MAX_VALUE;
+                }
+
+                // Cooldown Semplice (4 minuti)
+                if (lastSgvTimestamp > 0 && timeSinceLastSgv < TIMESTAMP_COOLDOWN_MS) {
+                    EselLog.LogI(TAG, "[FILTRO RAFFICA] Dato scartato per cooldown. Intervallo: " + (timeSinceLastSgv / 1000) + "s < " + (TIMESTAMP_COOLDOWN_MS / 1000) + "s");
+                    if (wakeLockAcquired && wakeLock != null && wakeLock.isHeld()) {
+                        try {
+                            wakeLock.release();
+                        } catch (Exception e) {
+                            EselLog.LogE(TAG, "Errore rilascio WakeLock (cooldown): " + e.getMessage());
+                        }
+                    }
                     return;
                 }
             } else {
@@ -191,15 +233,21 @@ public class DataMonitorService extends Service {
 
             EselLog.LogI(TAG, "Pronto per invio: Valore=" + sgv.value + " (Grezzo=" + sgv.raw + ") | Direzione=" + sgv.direction);
 
-            if (SP.getBoolean("send_to_AAPS", true)) { AapsSender.sendToAaps(getApplicationContext(), sgv); }
-            if (SP.getBoolean("send_to_NS", false)) { AapsSender.sendToNsClient(getApplicationContext(), sgv); }
+            Context appContext = getApplicationContext();
+            if (SP.getBoolean("send_to_AAPS", true)) { AapsSender.sendToAaps(appContext, sgv); }
+            if (SP.getBoolean("send_to_NS", false)) { AapsSender.sendToNsClient(appContext, sgv); }
 
-            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getApplicationContext());
-            prefs.edit().putLong(KEY_LAST_SGV_TIMESTAMP, sgv.timestamp).commit();
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(appContext);
+            boolean success = prefs.edit().putLong(KEY_LAST_SGV_TIMESTAMP, sgv.timestamp).commit();
+            if (!success) {
+                EselLog.LogE(TAG, "Salvataggio SINCRONO di KEY_LAST_SGV_TIMESTAMP fallito!");
+            }
 
-            SP.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, System.currentTimeMillis());
-            SP.putInt(KEY_LAST_SGV_RAW_VALUE, sgv.raw);
-            SP.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.value);
+            SharedPreferences.Editor editor = prefs.edit();
+            editor.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, System.currentTimeMillis());
+            editor.putInt(KEY_LAST_SGV_RAW_VALUE, sgv.raw);
+            editor.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.value);
+            editor.apply();
 
             updateSgvHistory(sgv);
 
@@ -210,11 +258,15 @@ public class DataMonitorService extends Service {
             updateNotification(notificationText);
 
         } catch (Throwable t) {
-            EselLog.LogE(TAG, "Errore critico durante il processamento del SGV: " + t.getMessage());
+            EselLog.LogE(TAG, "Errore critico durante il processamento del SGV: " + Log.getStackTraceString(t));
         } finally {
-            if (wakeLock != null && wakeLock.isHeld()) {
-                wakeLock.release();
-                EselLog.LogW(TAG, "WakeLock rilasciato.");
+            if (wakeLockAcquired && wakeLock != null && wakeLock.isHeld()) {
+                try {
+                    wakeLock.release();
+                    EselLog.LogW(TAG, "WakeLock rilasciato.");
+                } catch (Exception e) {
+                    EselLog.LogE(TAG, "Errore rilascio WakeLock (finally): " + e.getMessage());
+                }
             }
         }
     }
@@ -291,6 +343,9 @@ public class DataMonitorService extends Service {
         } catch (NumberFormatException e) {
             EselLog.LogE(TAG, "[SMOOTHING] Errore di parsing delle impostazioni. Uso il valore grezzo. " + e.getMessage());
             return currentSgv.raw;
+        } catch (Exception e) {
+            EselLog.LogE(TAG, "[SMOOTHING] Errore inatteso: " + Log.getStackTraceString(e));
+            return currentSgv.raw;
         }
     }
 
@@ -298,18 +353,25 @@ public class DataMonitorService extends Service {
         long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
         int lastSentFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
 
-        if (lastSgvTimestamp <= 0 || lastSentFinalValue == -1) {
+        if (lastSgvTimestamp <= 0 || lastSentFinalValue <= 0) {
+            EselLog.LogI(TAG, "[TREND] Dati precedenti non validi per calcolo trend.");
             sgv.direction = "Flat";
             return;
         }
 
         long timeDiff = sgv.timestamp - lastSgvTimestamp;
         if (timeDiff <= 0) {
+            EselLog.LogW(TAG, "[TREND] Differenza temporale non valida o zero: " + timeDiff + "ms. Imposto Flat.");
             sgv.direction = "Flat";
             return;
         }
 
-        double slopeByMinute = (double) (sgv.value - lastSentFinalValue) * 60000.0d / (double) timeDiff;
+        double valueDiff = (double) sgv.value - lastSentFinalValue;
+        double slopeByMinute = valueDiff * 60000.0 / timeDiff;
+
+        double roundedSlope = Math.round(slopeByMinute * 100.0) / 100.0;
+        EselLog.LogI(TAG, "[TREND] Calcolo: (ValoreCorrente=" + sgv.value + " - ValorePrecedente=" + lastSentFinalValue + ") / (DiffTempo=" + timeDiff/1000 + "s) * 60 = " + roundedSlope + " mg/dL/min");
+
 
         if (slopeByMinute <= -3.5) {
             sgv.direction = "DoubleDown";
@@ -326,55 +388,23 @@ public class DataMonitorService extends Service {
         } else {
             sgv.direction = "DoubleUp";
         }
+        EselLog.LogI(TAG, "[TREND] Direzione calcolata: " + sgv.direction);
     }
 
-    private void startSyncTrigger() {
-        syncTriggerRunnable = new Runnable() {
-            @Override
-            public void run() {
-                FastPatrolReceiver.schedule(getApplicationContext());
-
-                EselLog.LogI(TAG, "Sync Trigger: Richiesta proattiva di lettura dati.");
-                requestSgvFromListener();
-
-                long intervalMillis = 5 * 60 * 1000L;
-                long now = System.currentTimeMillis();
-                long delay = intervalMillis - (now % intervalMillis);
-
-                syncTriggerHandler.postDelayed(this, delay);
-                EselLog.LogW(TAG, "Sync Trigger: Prossima esecuzione pianificata tra " + delay / 1000 + " secondi per allineamento all'orologio.");
-            }
-        };
-        // --- MODIFICA INIZIO: Ritardiamo la prima esecuzione del trigger ---
-        syncTriggerHandler.postDelayed(syncTriggerRunnable, INITIAL_TRIGGER_DELAY_MS);
-        EselLog.LogW(TAG, "Trigger di sincronizzazione proattiva avviato con un ritardo iniziale di " + (INITIAL_TRIGGER_DELAY_MS / 1000) + " secondi.");
-        // --- MODIFICA FINE ---
-    }
-
-    private void stopSyncTrigger() {
-        if (syncTriggerHandler != null && syncTriggerRunnable != null) {
-            syncTriggerHandler.removeCallbacks(syncTriggerRunnable);
-            EselLog.LogW(TAG, "Trigger di sincronizzazione proattiva fermato.");
-        }
-    }
-
-    private void requestSgvFromListener() {
-        try {
-            EselLog.LogI(TAG, "Invio comando a EsNotificationListener per forzare la lettura.");
-            Intent requestIntent = new Intent(this, EsNotificationListener.class);
-            requestIntent.setAction(ACTION_REQUEST_SGV_READ);
-            startService(requestIntent);
-        } catch (Exception e) {
-            EselLog.LogE(TAG, "Impossibile inviare la richiesta a EsNotificationListener: " + e.getMessage());
-        }
-    }
-
+    // Rimossi metodi startSyncTrigger, stopSyncTrigger, requestSgvFromListener
 
     private void updateSgvHistory(SGV newSgv) {
         try {
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
             String durationHoursStr = prefs.getString("graph_duration_hours", "3");
-            int durationHours = Integer.parseInt(durationHoursStr);
+            int durationHours = 3;
+            try {
+                durationHours = Integer.parseInt(durationHoursStr);
+                if (durationHours <= 0) durationHours = 3;
+            } catch (NumberFormatException e) {
+                EselLog.LogW(TAG, "Valore graph_duration_hours non valido: " + durationHoursStr + ". Uso default 3 ore.");
+            }
+
             int historyMaxSize = durationHours * 12;
 
             String historyJson = SP.getString(KEY_SGV_HISTORY_JSON, "[]");
@@ -393,15 +423,17 @@ public class DataMonitorService extends Service {
             String newHistoryJson = gson.toJson(history);
             SP.putString(KEY_SGV_HISTORY_JSON, newHistoryJson);
         } catch (Exception e) {
-            EselLog.LogE(TAG, "Errore durante l'aggiornamento della cronologia SGV: " + e.getMessage());
+            EselLog.LogE(TAG, "Errore durante l'aggiornamento della cronologia SGV: " + Log.getStackTraceString(e));
         }
     }
+
 
     private void stopSelfService() {
         EselLog.LogW(TAG, "Inizio procedura di arresto volontario del servizio.");
         SP.putBoolean("service_should_be_running", false);
         SP.putBoolean("enable_service", false);
-        stopSyncTrigger();
+
+        // Rimossa chiamata a stopSyncTrigger()
 
         WatchdogReceiver.cancelWatchdog(this);
         FastPatrolReceiver.cancel(this);
@@ -414,15 +446,17 @@ public class DataMonitorService extends Service {
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE);
+            stopForeground(Service.STOP_FOREGROUND_REMOVE);
         } else {
             stopForeground(true);
         }
         stopSelf();
+        EselLog.LogW(TAG, "Servizio fermato.");
     }
 
+
     private String getTrendArrow(String direction) {
-        if (direction == null) return "↔";
+        if (direction == null) return "→";
         switch (direction) {
             case "DoubleUp": return "↑↑";
             case "SingleUp": return "↑";
@@ -431,50 +465,87 @@ public class DataMonitorService extends Service {
             case "FortyFiveDown": return "↘";
             case "SingleDown": return "↓";
             case "DoubleDown": return "↓↓";
-            default: return "↔";
+            default:
+                EselLog.LogW(TAG, "Direzione trend non riconosciuta: " + direction + ". Uso Flat.");
+                return "→";
         }
     }
+
 
     @Override
     public void onDestroy() {
         super.onDestroy();
         EselLog.LogW(TAG, "DataMonitorService onDestroy.");
-        stopSyncTrigger();
+        // Rimossa chiamata a stopSyncTrigger()
+
         if (sgvDataReceiver != null) {
-            LocalBroadcastManager.getInstance(this).unregisterReceiver(sgvDataReceiver);
+            try {
+                LocalBroadcastManager.getInstance(this).unregisterReceiver(sgvDataReceiver);
+            } catch (Exception e) {
+                EselLog.LogE(TAG,"Errore unregisterReceiver: " + e.getMessage());
+            }
         }
-        if (executor != null) {
+        if (executor != null && !executor.isShutdown()) {
             executor.shutdown();
+            EselLog.LogI(TAG, "Executor shutdown richiesto.");
         }
+        if (wakeLock != null && wakeLock.isHeld()) {
+            try {
+                wakeLock.release();
+                EselLog.LogW(TAG, "WakeLock rilasciato in onDestroy (era ancora trattenuto).");
+            } catch (Exception e) {
+                EselLog.LogE(TAG, "Errore rilascio WakeLock in onDestroy: " + e.getMessage());
+            }
+        }
+
         if (SP.getBoolean("service_should_be_running", false)) {
             EselLog.LogW(TAG, "Distruzione non volontaria. Invio broadcast per il riavvio...");
             Intent broadcastIntent = new Intent(this, ServiceRestarter.class);
-            sendBroadcast(broadcastIntent);
+            try {
+                sendBroadcast(broadcastIntent);
+            } catch (Exception e) {
+                EselLog.LogE(TAG, "Errore invio broadcast ServiceRestarter: " + e.getMessage());
+            }
+
         }
     }
 
     @Override
     public void onTaskRemoved(Intent rootIntent) {
-        super.onTaskRemoved(rootIntent);
-        EselLog.LogW(TAG, "Task rimosso.");
+        EselLog.LogW(TAG, "Task rimosso dall'utente.");
         if (SP.getBoolean("service_should_be_running", false)) {
-            EselLog.LogW(TAG, "Distruzione non volontaria. Invio broadcast per il riavvio...");
+            EselLog.LogW(TAG, "Task rimosso, ma il servizio dovrebbe essere attivo. Invio broadcast per il riavvio...");
             Intent broadcastIntent = new Intent(this, ServiceRestarter.class);
-            sendBroadcast(broadcastIntent);
+            try {
+                sendBroadcast(broadcastIntent);
+            } catch (Exception e) {
+                EselLog.LogE(TAG, "Errore invio broadcast ServiceRestarter (onTaskRemoved): " + e.getMessage());
+            }
+        }
+        super.onTaskRemoved(rootIntent);
+    }
+
+
+    private void updateNotification(String contentText) {
+        try {
+            Notification notification = buildNotification(contentText);
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager != null) {
+                manager.notify(NOTIFICATION_ID, notification);
+            } else {
+                EselLog.LogE(TAG, "NotificationManager non disponibile per updateNotification.");
+            }
+        } catch (Exception e) {
+            EselLog.LogE(TAG, "Errore durante l'aggiornamento della notifica: " + e.getMessage());
         }
     }
 
-    private void updateNotification(String contentText) {
-        Notification notification = buildNotification(contentText);
-        NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (manager != null) {
-            manager.notify(NOTIFICATION_ID, notification);
-        }
-    }
 
     private Notification buildNotification(String contentText) {
         Intent notificationIntent = new Intent(this, MainActivity.class);
-        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle(getString(R.string.notification_persistent_title))
@@ -485,8 +556,10 @@ public class DataMonitorService extends Service {
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
+                .setSilent(true)
                 .build();
     }
+
 
     @Nullable
     @Override
@@ -495,16 +568,24 @@ public class DataMonitorService extends Service {
     }
 
     private void createNotificationChannel() {
-        NotificationChannel serviceChannel = new NotificationChannel(
-                CHANNEL_ID,
-                getString(R.string.app_name),
-                NotificationManager.IMPORTANCE_LOW
-        );
-        serviceChannel.setDescription(getString(R.string.notification_channel_description));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel serviceChannel = new NotificationChannel(
+                    CHANNEL_ID,
+                    getString(R.string.app_name),
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            serviceChannel.setDescription(getString(R.string.notification_channel_description));
+            serviceChannel.setSound(null, null);
+            serviceChannel.enableVibration(false);
 
-        NotificationManager manager = getSystemService(NotificationManager.class);
-        if (manager != null) {
-            manager.createNotificationChannel(serviceChannel);
+
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(serviceChannel);
+                EselLog.LogI(TAG,"Canale di notifica creato: " + CHANNEL_ID);
+            } else {
+                EselLog.LogE(TAG, "NotificationManager non disponibile per creare il canale.");
+            }
         }
     }
 }
