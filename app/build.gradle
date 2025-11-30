@@ -1,4 +1,4 @@
-// ---------- CODICE CON SDK TARGET ABBASSATO E WORKMANAGER ----------
+// ---------- CODICE CON FIX DIPENDENZA MANCANTE LocalBroadcastManager ----------
 apply plugin: 'com.android.application'
 
 android {
@@ -34,8 +34,6 @@ android {
     lint {
         disable 'ExpiredTargetSdkVersion'
     }
-
-    // Aggiunto per ignorare l'errore sul targetSdk, che è una scelta voluta.
 }
 
 dependencies {
@@ -44,20 +42,26 @@ dependencies {
     // Versioni originali e stabili
     implementation 'com.squareup.retrofit2:retrofit:2.11.0'
     implementation 'com.squareup.retrofit2:converter-gson:2.11.0'
-    implementation 'com.google.code.gson:gson:2.13.1'
+    implementation 'com.google.code.gson:gson:2.13.2'
 
+    // Core e Appcompat
     implementation 'androidx.core:core-ktx:1.16.0'
     implementation 'androidx.appcompat:appcompat:1.7.1'
-    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'com.google.android.material:material:1.13.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 
     implementation 'androidx.preference:preference-ktx:1.2.1'
 
+    // --- AGGIUNTA FONDAMENTALE PER FIXARE L'ERRORE ---
+    // Questa libreria serve per LocalBroadcastManager che è stato rimosso dalle versioni recenti di AndroidX
+    implementation 'androidx.localbroadcastmanager:localbroadcastmanager:1.1.0'
+    // ------------------------------------------------
+
     implementation 'com.github.PhilJay:MPAndroidChart:v3.1.0'
 
-    // Dipendenza per WorkManager (la nostra "pattuglia di riserva")
-    implementation "androidx.work:work-runtime-ktx:2.9.0"
+    // Dipendenza per WorkManager
+    implementation "androidx.work:work-runtime-ktx:2.11.0"
 
     // Dipendenze per i test
     testImplementation 'junit:junit:4.13.2'

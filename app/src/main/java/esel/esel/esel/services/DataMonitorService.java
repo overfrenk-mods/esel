@@ -1,4 +1,4 @@
-// ---------- CODICE VERSIONE "FORCE TIME" PULITA (NO SYNC TRIGGER) ----------
+// ---------- CODICE VERSIONE "FORCE TIME" (SOLUZIONE 3.0.4 MODERNA) ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -13,7 +13,9 @@ import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.util.Log;
 
@@ -53,7 +55,7 @@ public class DataMonitorService extends Service {
     public static final int NOTIFICATION_ID = 101;
     public static final String ACTION_STOP_SERVICE = "esel.esel.esel.ACTION_STOP_SERVICE";
     public static final String ACTION_MANUAL_SYNC = "esel.esel.esel.ACTION_MANUAL_SYNC";
-    // Rimossa ACTION_REQUEST_SGV_READ
+    public static final String ACTION_REQUEST_SGV_READ = "esel.esel.esel.ACTION_REQUEST_SGV_READ";
     public static final int WATCHDOG_REQUEST_CODE = 901;
 
     public static final String KEY_LAST_SUCCESSFUL_SEND_MS = "status_last_successful_send_ms";
@@ -62,16 +64,19 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
 
-    // Cooldown a 4 minuti per gestire le raffiche
+    // Manteniamo il Cooldown a 4 minuti (come nella versione stabile)
     private static final long TIMESTAMP_COOLDOWN_MS = 4 * 60 * 1000L;
+
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
+    private static final long INITIAL_TRIGGER_DELAY_MS = 15 * 1000L;
 
     private ExecutorService executor;
     private BroadcastReceiver sgvDataReceiver;
     private PowerManager.WakeLock wakeLock;
     private Gson gson;
 
-    // Rimossi Handler e Runnable del Sync Trigger
+    private Handler syncTriggerHandler;
+    private Runnable syncTriggerRunnable;
 
     public static class SgvHistoryPoint {
         public long timestamp;
@@ -98,7 +103,7 @@ public class DataMonitorService extends Service {
 
         executor = Executors.newSingleThreadExecutor();
         gson = new Gson();
-        // Rimosso syncTriggerHandler
+        syncTriggerHandler = new Handler(Looper.getMainLooper());
 
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
         if (powerManager != null) {
@@ -108,13 +113,14 @@ public class DataMonitorService extends Service {
             wakeLock = null;
         }
 
+
         createNotificationChannel();
         setupSgvDataReceiver();
 
         WatchdogReceiver.scheduleNextWatchdog(this);
         FastPatrolReceiver.schedule(this);
 
-        // Rimosso startSyncTrigger()
+        startSyncTrigger();
 
         SP.putBoolean("service_should_be_running", true);
         Notification notification = buildNotification(getString(R.string.notification_persistent_text_waiting));
@@ -177,11 +183,9 @@ public class DataMonitorService extends Service {
     }
 
     private void processSgv(SGV sgv, boolean isManualOverride) {
-        boolean wakeLockAcquired = false;
         if (wakeLock != null && !wakeLock.isHeld()) {
             try {
                 wakeLock.acquire(20 * 1000L);
-                wakeLockAcquired = true;
                 EselLog.LogW(TAG, "WakeLock acquisito per l'elaborazione dei dati.");
             } catch (Exception e) {
                 EselLog.LogE(TAG, "Errore acquisizione WakeLock: " + e.getMessage());
@@ -189,11 +193,13 @@ public class DataMonitorService extends Service {
         }
 
         try {
-            // --- FORCE TIME (SOLUZIONE 3.0.4) ---
+            // --- MODIFICA FONDAMENTALE: OVERRIDE DEL TIMESTAMP (Fix Deriva) ---
+            // Questo è il "segreto" della versione 3.0.4.
+            // Ignoriamo l'orario della notifica e usiamo "ADESSO".
             long originalNotificationTime = sgv.timestamp;
-            sgv.timestamp = System.currentTimeMillis(); // Usa orario sistema
-            EselLog.LogI(TAG, "[FORCE TIME] TS Orig: " + new Date(originalNotificationTime) + " -> TS Sistema: " + new Date(sgv.timestamp));
-            // ------------------------------------
+            sgv.timestamp = System.currentTimeMillis();
+            EselLog.LogI(TAG, "[FORCE TIME] Timestamp notifica (" + new Date(originalNotificationTime) + ") ignorato. Usato orario sistema: " + new Date(sgv.timestamp));
+            // --- FINE MODIFICA ---
 
             if (!isManualOverride) {
                 long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
@@ -208,18 +214,13 @@ public class DataMonitorService extends Service {
                     timeSinceLastSgv = Long.MAX_VALUE;
                 }
 
-                // Cooldown Semplice (4 minuti)
+                // Controllo Cooldown (4 minuti - STABILE)
+                // Blocca la raffica di notifiche, lasciando passare solo la prima valida ogni 5 min.
                 if (lastSgvTimestamp > 0 && timeSinceLastSgv < TIMESTAMP_COOLDOWN_MS) {
                     EselLog.LogI(TAG, "[FILTRO RAFFICA] Dato scartato per cooldown. Intervallo: " + (timeSinceLastSgv / 1000) + "s < " + (TIMESTAMP_COOLDOWN_MS / 1000) + "s");
-                    if (wakeLockAcquired && wakeLock != null && wakeLock.isHeld()) {
-                        try {
-                            wakeLock.release();
-                        } catch (Exception e) {
-                            EselLog.LogE(TAG, "Errore rilascio WakeLock (cooldown): " + e.getMessage());
-                        }
-                    }
                     return;
                 }
+
             } else {
                 EselLog.LogW(TAG, "SYNC MANUALE: Filtri temporali bypassati.");
             }
@@ -231,7 +232,7 @@ public class DataMonitorService extends Service {
 
             calculateTrend(sgv);
 
-            EselLog.LogI(TAG, "Pronto per invio: Valore=" + sgv.value + " (Grezzo=" + sgv.raw + ") | Direzione=" + sgv.direction);
+            EselLog.LogI(TAG, "Pronto per invio: Valore=" + sgv.value + " (Grezzo=" + sgv.raw + ") | Direzione=" + sgv.direction + " | Timestamp inviato: " + new Date(sgv.timestamp));
 
             Context appContext = getApplicationContext();
             if (SP.getBoolean("send_to_AAPS", true)) { AapsSender.sendToAaps(appContext, sgv); }
@@ -260,7 +261,7 @@ public class DataMonitorService extends Service {
         } catch (Throwable t) {
             EselLog.LogE(TAG, "Errore critico durante il processamento del SGV: " + Log.getStackTraceString(t));
         } finally {
-            if (wakeLockAcquired && wakeLock != null && wakeLock.isHeld()) {
+            if (wakeLock != null && wakeLock.isHeld()) {
                 try {
                     wakeLock.release();
                     EselLog.LogW(TAG, "WakeLock rilasciato.");
@@ -391,7 +392,60 @@ public class DataMonitorService extends Service {
         EselLog.LogI(TAG, "[TREND] Direzione calcolata: " + sgv.direction);
     }
 
-    // Rimossi metodi startSyncTrigger, stopSyncTrigger, requestSgvFromListener
+
+    private void startSyncTrigger() {
+        if (syncTriggerHandler != null && syncTriggerRunnable != null) {
+            syncTriggerHandler.removeCallbacks(syncTriggerRunnable);
+        }
+
+        syncTriggerRunnable = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    FastPatrolReceiver.schedule(getApplicationContext());
+                } catch (Exception e) {
+                    EselLog.LogE(TAG, "Errore schedulazione FastPatrol dal trigger: " + e.getMessage());
+                }
+
+
+                EselLog.LogI(TAG, "Sync Trigger: Richiesta proattiva di lettura dati.");
+                requestSgvFromListener();
+
+                long intervalMillis = 5 * 60 * 1000L;
+                long now = System.currentTimeMillis();
+                long delay = intervalMillis - (now % intervalMillis);
+                delay += 250;
+
+
+                syncTriggerHandler.postDelayed(this, delay);
+                EselLog.LogW(TAG, "Sync Trigger: Prossima esecuzione pianificata tra " + delay / 1000 + " secondi per allineamento all'orologio.");
+            }
+        };
+        syncTriggerHandler.postDelayed(syncTriggerRunnable, INITIAL_TRIGGER_DELAY_MS);
+        EselLog.LogW(TAG, "Trigger di sincronizzazione proattiva avviato con un ritardo iniziale di " + (INITIAL_TRIGGER_DELAY_MS / 1000) + " secondi.");
+    }
+
+
+    private void stopSyncTrigger() {
+        if (syncTriggerHandler != null && syncTriggerRunnable != null) {
+            syncTriggerHandler.removeCallbacks(syncTriggerRunnable);
+            EselLog.LogW(TAG, "Trigger di sincronizzazione proattiva fermato.");
+        }
+    }
+
+    private void requestSgvFromListener() {
+        try {
+            EselLog.LogI(TAG, "Invio comando a EsNotificationListener per forzare la lettura.");
+            Intent requestIntent = new Intent(this, EsNotificationListener.class);
+            requestIntent.setAction(ACTION_REQUEST_SGV_READ);
+            startService(requestIntent);
+        } catch (IllegalStateException e) {
+            EselLog.LogE(TAG, "Impossibile inviare la richiesta a EsNotificationListener (app in background restricted?): " + e.getMessage());
+        } catch (Exception e) {
+            EselLog.LogE(TAG, "Impossibile inviare la richiesta a EsNotificationListener: " + e.getMessage());
+        }
+    }
+
 
     private void updateSgvHistory(SGV newSgv) {
         try {
@@ -432,8 +486,7 @@ public class DataMonitorService extends Service {
         EselLog.LogW(TAG, "Inizio procedura di arresto volontario del servizio.");
         SP.putBoolean("service_should_be_running", false);
         SP.putBoolean("enable_service", false);
-
-        // Rimossa chiamata a stopSyncTrigger()
+        stopSyncTrigger();
 
         WatchdogReceiver.cancelWatchdog(this);
         FastPatrolReceiver.cancel(this);
@@ -476,8 +529,7 @@ public class DataMonitorService extends Service {
     public void onDestroy() {
         super.onDestroy();
         EselLog.LogW(TAG, "DataMonitorService onDestroy.");
-        // Rimossa chiamata a stopSyncTrigger()
-
+        stopSyncTrigger();
         if (sgvDataReceiver != null) {
             try {
                 LocalBroadcastManager.getInstance(this).unregisterReceiver(sgvDataReceiver);
