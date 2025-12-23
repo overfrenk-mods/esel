@@ -1,4 +1,4 @@
-// ---------- CODICE VERSIONE "FORCE TIME" (SOLUZIONE 3.0.4 MODERNA) ----------
+// ---------- CODICE VERSIONE "FORCE TIME" + NOTIFICA UNICA DETTAGLIATA ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -64,9 +64,7 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
 
-    // Manteniamo il Cooldown a 4 minuti (come nella versione stabile)
     private static final long TIMESTAMP_COOLDOWN_MS = 4 * 60 * 1000L;
-
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
     private static final long INITIAL_TRIGGER_DELAY_MS = 15 * 1000L;
 
@@ -77,6 +75,9 @@ public class DataMonitorService extends Service {
 
     private Handler syncTriggerHandler;
     private Runnable syncTriggerRunnable;
+
+    // Variabile per mostrare lo stato dello smoothing nella notifica
+    private String currentSmoothingStatus = "OFF";
 
     public static class SgvHistoryPoint {
         public long timestamp;
@@ -93,6 +94,9 @@ public class DataMonitorService extends Service {
         super.onCreate();
         EselLog.LogI(TAG, "DataMonitorService onCreate.");
 
+        // --- MODIFICA PER NOTIFICA UNICA ---
+        // Ho commentato l'avvio del CompanionService per eliminare la seconda icona fastidiosa.
+        /*
         try {
             Intent companionIntent = new Intent(this, CompanionService.class);
             ContextCompat.startForegroundService(this, companionIntent);
@@ -100,6 +104,7 @@ public class DataMonitorService extends Service {
         } catch (Exception e) {
             EselLog.LogE(TAG, "Impossibile avviare il CompanionService: " + e.getMessage());
         }
+        */
 
         executor = Executors.newSingleThreadExecutor();
         gson = new Gson();
@@ -112,7 +117,6 @@ public class DataMonitorService extends Service {
             EselLog.LogE(TAG, "PowerManager non disponibile!");
             wakeLock = null;
         }
-
 
         createNotificationChannel();
         setupSgvDataReceiver();
@@ -193,13 +197,10 @@ public class DataMonitorService extends Service {
         }
 
         try {
-            // --- MODIFICA FONDAMENTALE: OVERRIDE DEL TIMESTAMP (Fix Deriva) ---
-            // Questo è il "segreto" della versione 3.0.4.
-            // Ignoriamo l'orario della notifica e usiamo "ADESSO".
+            int rawValue = sgv.raw;
             long originalNotificationTime = sgv.timestamp;
             sgv.timestamp = System.currentTimeMillis();
             EselLog.LogI(TAG, "[FORCE TIME] Timestamp notifica (" + new Date(originalNotificationTime) + ") ignorato. Usato orario sistema: " + new Date(sgv.timestamp));
-            // --- FINE MODIFICA ---
 
             if (!isManualOverride) {
                 long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
@@ -214,8 +215,6 @@ public class DataMonitorService extends Service {
                     timeSinceLastSgv = Long.MAX_VALUE;
                 }
 
-                // Controllo Cooldown (4 minuti - STABILE)
-                // Blocca la raffica di notifiche, lasciando passare solo la prima valida ogni 5 min.
                 if (lastSgvTimestamp > 0 && timeSinceLastSgv < TIMESTAMP_COOLDOWN_MS) {
                     EselLog.LogI(TAG, "[FILTRO RAFFICA] Dato scartato per cooldown. Intervallo: " + (timeSinceLastSgv / 1000) + "s < " + (TIMESTAMP_COOLDOWN_MS / 1000) + "s");
                     return;
@@ -227,6 +226,7 @@ public class DataMonitorService extends Service {
 
             EselLog.LogI(TAG, "SGV(" + sgv.raw + ") ha superato i filtri. Inizio elaborazione.");
 
+            // Calcolo Smoothing (aggiorna anche la variabile currentSmoothingStatus)
             int finalValue = applyEasySmoothing(sgv);
             sgv.value = finalValue;
 
@@ -246,16 +246,21 @@ public class DataMonitorService extends Service {
 
             SharedPreferences.Editor editor = prefs.edit();
             editor.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, System.currentTimeMillis());
-            editor.putInt(KEY_LAST_SGV_RAW_VALUE, sgv.raw);
+            editor.putInt(KEY_LAST_SGV_RAW_VALUE, rawValue);
             editor.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.value);
             editor.apply();
 
             updateSgvHistory(sgv);
 
+            // --- MODIFICA PER NOTIFICA DETTAGLIATA ---
             DateFormat df = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
             String trendArrow = getTrendArrow(sgv.direction);
             String formattedTime = df.format(new Date(sgv.timestamp));
-            String notificationText = getString(R.string.notification_persistent_text_last_send, String.valueOf(sgv.value), trendArrow, formattedTime);
+
+            // Nuova stringa: "142 ↑ (Raw: 145) [MEDIO] alle 12:05:01"
+            String notificationText = sgv.value + " " + trendArrow +
+                    " (Raw: " + rawValue + ") [" + currentSmoothingStatus + "] alle " + formattedTime;
+
             updateNotification(notificationText);
 
         } catch (Throwable t) {
@@ -274,78 +279,53 @@ public class DataMonitorService extends Service {
 
     private int applyEasySmoothing(SGV currentSgv) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-
         boolean smoothingEnabled = prefs.getBoolean("smooth_data", false);
+
         if (!smoothingEnabled) {
+            currentSmoothingStatus = "OFF";
+            EselLog.LogI(TAG, "Smoothing SPENTO. Valore raw: " + currentSgv.raw);
             return currentSgv.raw;
         }
 
         try {
             int lowerLimit = Integer.parseInt(prefs.getString("lower_limit", "65"));
             if (currentSgv.raw < lowerLimit) {
-                EselLog.LogW(TAG, "[SMOOTHING] SICUREZZA: Valore grezzo (" + currentSgv.raw + ") sotto il limite (" + lowerLimit + "). Smoothing disattivato.");
+                currentSmoothingStatus = "LIMIT";
+                EselLog.LogW(TAG, "[SMOOTHING] SICUREZZA: Valore grezzo (" + currentSgv.raw + ") sotto limite. Smoothing ignorato.");
                 return currentSgv.raw;
             }
 
-            String level = prefs.getString("smoothing_level", "medium");
+            // Mappatura Livelli (SOFT-MEDIO-ALTO-FORTE)
+            String level = prefs.getString("smoothing_level", "MEDIO").toUpperCase();
+            currentSmoothingStatus = level;
             double smoothFactor;
-            double correctionFactor;
-            double descentFactor;
 
             switch (level) {
-                case "soft":
-                    smoothFactor = 0.5;
-                    correctionFactor = 0.5;
-                    descentFactor = 0.3;
-                    break;
-                case "high":
-                    smoothFactor = 0.2;
-                    correctionFactor = 0.4;
-                    descentFactor = 0.0;
-                    break;
-                case "strong":
-                    smoothFactor = 0.15;
-                    correctionFactor = 0.3;
-                    descentFactor = 0.0;
-                    break;
-                case "medium":
+                case "SOFT": smoothFactor = 0.5; break;
+                case "ALTO": smoothFactor = 0.2; break;
+                case "FORTE": smoothFactor = 0.1; break;
+                case "MEDIO":
                 default:
                     smoothFactor = 0.3;
-                    correctionFactor = 0.5;
-                    descentFactor = 0.1;
+                    currentSmoothingStatus = "MEDIO";
                     break;
             }
-            EselLog.LogI(TAG, "[SMOOTHING] Livello selezionato: " + level);
-
 
             int lastFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
             if (lastFinalValue == -1) {
-                EselLog.LogI(TAG, "[SMOOTHING] Primo avvio dopo reset. Inizializzo con il valore grezzo: " + currentSgv.raw);
+                EselLog.LogI(TAG, "Smoothing attivo su " + level + " (Primo avvio). Raw: " + currentSgv.raw);
                 return currentSgv.raw;
             }
 
-            EselLog.LogI(TAG, "[SMOOTHING] START -> Grezzo: " + currentSgv.raw + ", Ultimo Finale: " + lastFinalValue);
-
             double smoothedValue = (currentSgv.raw * smoothFactor) + (lastFinalValue * (1 - smoothFactor));
+            int finalValue = (int) Math.round(smoothedValue);
 
-            double difference = smoothedValue - lastFinalValue;
-            if (difference < 0) {
-                double adjustedDifference = difference * (1 - descentFactor);
-                smoothedValue = lastFinalValue + adjustedDifference;
-                EselLog.LogI(TAG, "[SMOOTHING] Discesa rilevata. Differenza corretta con descent_factor: " + String.format(Locale.US, "%.2f", adjustedDifference));
-            }
+            EselLog.LogI(TAG, "Smoothing ATTIVO su " + level + ". Raw: " + currentSgv.raw + " -> Smooth: " + finalValue);
+            return finalValue;
 
-            double rawDifference = currentSgv.raw - smoothedValue;
-            smoothedValue += rawDifference * correctionFactor;
-            EselLog.LogI(TAG, "[SMOOTHING] Valore corretto con correction_factor. Nuovo valore: " + Math.round(smoothedValue));
-
-            return (int) Math.round(smoothedValue);
-
-        } catch (NumberFormatException e) {
-            EselLog.LogE(TAG, "[SMOOTHING] Errore di parsing delle impostazioni. Uso il valore grezzo. " + e.getMessage());
-            return currentSgv.raw;
         } catch (Exception e) {
-            EselLog.LogE(TAG, "[SMOOTHING] Errore inatteso: " + Log.getStackTraceString(e));
+            currentSmoothingStatus = "ERR";
+            EselLog.LogE(TAG, "Errore smoothing: " + e.getMessage());
             return currentSgv.raw;
         }
     }
@@ -373,7 +353,6 @@ public class DataMonitorService extends Service {
         double roundedSlope = Math.round(slopeByMinute * 100.0) / 100.0;
         EselLog.LogI(TAG, "[TREND] Calcolo: (ValoreCorrente=" + sgv.value + " - ValorePrecedente=" + lastSentFinalValue + ") / (DiffTempo=" + timeDiff/1000 + "s) * 60 = " + roundedSlope + " mg/dL/min");
 
-
         if (slopeByMinute <= -3.5) {
             sgv.direction = "DoubleDown";
         } else if (slopeByMinute <= -2.0) {
@@ -392,7 +371,6 @@ public class DataMonitorService extends Service {
         EselLog.LogI(TAG, "[TREND] Direzione calcolata: " + sgv.direction);
     }
 
-
     private void startSyncTrigger() {
         if (syncTriggerHandler != null && syncTriggerRunnable != null) {
             syncTriggerHandler.removeCallbacks(syncTriggerRunnable);
@@ -407,7 +385,6 @@ public class DataMonitorService extends Service {
                     EselLog.LogE(TAG, "Errore schedulazione FastPatrol dal trigger: " + e.getMessage());
                 }
 
-
                 EselLog.LogI(TAG, "Sync Trigger: Richiesta proattiva di lettura dati.");
                 requestSgvFromListener();
 
@@ -416,7 +393,6 @@ public class DataMonitorService extends Service {
                 long delay = intervalMillis - (now % intervalMillis);
                 delay += 250;
 
-
                 syncTriggerHandler.postDelayed(this, delay);
                 EselLog.LogW(TAG, "Sync Trigger: Prossima esecuzione pianificata tra " + delay / 1000 + " secondi per allineamento all'orologio.");
             }
@@ -424,7 +400,6 @@ public class DataMonitorService extends Service {
         syncTriggerHandler.postDelayed(syncTriggerRunnable, INITIAL_TRIGGER_DELAY_MS);
         EselLog.LogW(TAG, "Trigger di sincronizzazione proattiva avviato con un ritardo iniziale di " + (INITIAL_TRIGGER_DELAY_MS / 1000) + " secondi.");
     }
-
 
     private void stopSyncTrigger() {
         if (syncTriggerHandler != null && syncTriggerRunnable != null) {
@@ -439,13 +414,10 @@ public class DataMonitorService extends Service {
             Intent requestIntent = new Intent(this, EsNotificationListener.class);
             requestIntent.setAction(ACTION_REQUEST_SGV_READ);
             startService(requestIntent);
-        } catch (IllegalStateException e) {
-            EselLog.LogE(TAG, "Impossibile inviare la richiesta a EsNotificationListener (app in background restricted?): " + e.getMessage());
         } catch (Exception e) {
             EselLog.LogE(TAG, "Impossibile inviare la richiesta a EsNotificationListener: " + e.getMessage());
         }
     }
-
 
     private void updateSgvHistory(SGV newSgv) {
         try {
@@ -460,7 +432,6 @@ public class DataMonitorService extends Service {
             }
 
             int historyMaxSize = durationHours * 12;
-
             String historyJson = SP.getString(KEY_SGV_HISTORY_JSON, "[]");
             Type listType = new TypeToken<ArrayList<SgvHistoryPoint>>() {}.getType();
             List<SgvHistoryPoint> history = gson.fromJson(historyJson, listType);
@@ -469,7 +440,6 @@ public class DataMonitorService extends Service {
             }
 
             history.add(new SgvHistoryPoint(newSgv.timestamp, newSgv.value));
-
             while (history.size() > historyMaxSize) {
                 history.remove(0);
             }
@@ -480,7 +450,6 @@ public class DataMonitorService extends Service {
             EselLog.LogE(TAG, "Errore durante l'aggiornamento della cronologia SGV: " + Log.getStackTraceString(e));
         }
     }
-
 
     private void stopSelfService() {
         EselLog.LogW(TAG, "Inizio procedura di arresto volontario del servizio.");
@@ -507,7 +476,6 @@ public class DataMonitorService extends Service {
         EselLog.LogW(TAG, "Servizio fermato.");
     }
 
-
     private String getTrendArrow(String direction) {
         if (direction == null) return "→";
         switch (direction) {
@@ -523,7 +491,6 @@ public class DataMonitorService extends Service {
                 return "→";
         }
     }
-
 
     @Override
     public void onDestroy() {
@@ -544,7 +511,7 @@ public class DataMonitorService extends Service {
         if (wakeLock != null && wakeLock.isHeld()) {
             try {
                 wakeLock.release();
-                EselLog.LogW(TAG, "WakeLock rilasciato in onDestroy (era ancora trattenuto).");
+                EselLog.LogW(TAG, "WakeLock rilasciato in onDestroy.");
             } catch (Exception e) {
                 EselLog.LogE(TAG, "Errore rilascio WakeLock in onDestroy: " + e.getMessage());
             }
@@ -558,7 +525,6 @@ public class DataMonitorService extends Service {
             } catch (Exception e) {
                 EselLog.LogE(TAG, "Errore invio broadcast ServiceRestarter: " + e.getMessage());
             }
-
         }
     }
 
@@ -566,7 +532,6 @@ public class DataMonitorService extends Service {
     public void onTaskRemoved(Intent rootIntent) {
         EselLog.LogW(TAG, "Task rimosso dall'utente.");
         if (SP.getBoolean("service_should_be_running", false)) {
-            EselLog.LogW(TAG, "Task rimosso, ma il servizio dovrebbe essere attivo. Invio broadcast per il riavvio...");
             Intent broadcastIntent = new Intent(this, ServiceRestarter.class);
             try {
                 sendBroadcast(broadcastIntent);
@@ -577,27 +542,21 @@ public class DataMonitorService extends Service {
         super.onTaskRemoved(rootIntent);
     }
 
-
     private void updateNotification(String contentText) {
         try {
-            Notification notification = buildNotification(contentText);
             NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager != null) {
-                manager.notify(NOTIFICATION_ID, notification);
-            } else {
-                EselLog.LogE(TAG, "NotificationManager non disponibile per updateNotification.");
+                manager.notify(NOTIFICATION_ID, buildNotification(contentText));
             }
         } catch (Exception e) {
             EselLog.LogE(TAG, "Errore durante l'aggiornamento della notifica: " + e.getMessage());
         }
     }
 
-
     private Notification buildNotification(String contentText) {
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle(getString(R.string.notification_persistent_title))
@@ -611,7 +570,6 @@ public class DataMonitorService extends Service {
                 .setSilent(true)
                 .build();
     }
-
 
     @Nullable
     @Override
@@ -630,13 +588,10 @@ public class DataMonitorService extends Service {
             serviceChannel.setSound(null, null);
             serviceChannel.enableVibration(false);
 
-
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) {
                 manager.createNotificationChannel(serviceChannel);
                 EselLog.LogI(TAG,"Canale di notifica creato: " + CHANNEL_ID);
-            } else {
-                EselLog.LogE(TAG, "NotificationManager non disponibile per creare il canale.");
             }
         }
     }
