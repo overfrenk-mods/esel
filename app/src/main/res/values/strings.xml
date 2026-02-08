@@ -74,17 +74,22 @@
     <string name="log_toast_file_not_found">Log file not found.</string>
     <string name="log_toast_share_error">Unable to share log file.</string>
     <string name="log_share_chooser_title">Share log via…</string>
+    <string name="log_search_hint">Filter by TAG or text...</string>
+    <string name="log_menu_filter_verbose">Verbose</string>
+    <string name="log_menu_filter_restart">Restart</string>
 
     <string name="notification_persistent_title">Eversense-Reader Active</string>
     <string name="notification_channel_description">Persistent notification for data monitoring.</string>
-    <string name="notification_persistent_text_waiting">Service waiting for data...</string>
-    <string name="notification_persistent_text_last_send">Last send: %1$s %2$s at %3$s</string>
-    <string name="notification_restart_title">Attention: Frequent Restarts</string>
-    <string name="notification_restart_text">The monitoring service is restarting too often. Check the battery settings.</string>
-    <string name="notification_permission_title">ATTENTION: Permission Missing</string>
-    <string name="notification_permission_text">ESEL cannot read data. Click here to re-enable notification access.</string>
+    <string name="notification_persistent_text_waiting">Waiting for Eversense data...</string>
+    <string name="notification_persistent_text_last_send">Last: %1$s %2$s at %3$s</string>
 
-    <string name="EsNotificationListener_name">Eversense Notification Service</string>
+    <string name="notification_restart_title">App Restarted</string>
+    <string name="notification_restart_text">Eversense-Reader was restarted to ensure data continuity.</string>
+
+    <string name="notification_permission_title">Permission Missing!</string>
+    <string name="notification_permission_text">App cannot read Eversense. Tap here to fix.</string>
+
+    <string name="EsNotificationListener_name">Eversense-Reader Notification Service</string>
 
     <string name="settings_category_advanced">Advanced</string>
     <string name="settings_restart_notification_title">Restart Notifications</string>
@@ -93,16 +98,18 @@
     <string name="settings_log_size_summary">Set the maximum number of lines in the log file</string>
 
     <string name="smooth_data_title">Enable Data Smoothing</string>
-    <string name="smooth_data_summary">Smooths out readings for a more stable and less \'noisy\' glucose curve.</string>
+    <string name="smooth_data_summary">Smooths out readings for a more stable glucose curve.</string>
     <string name="smoothing_level_title">Smoothing Level</string>
     <string name="lower_limit_title">Lower Limit for Smoothing</string>
-    <string name="lower_limit_summary">Below this value (mg/dL), smoothing is disabled for safety. Default: 65</string>
+    <string name="lower_limit_summary">Below this value (mg/dL), smoothing is disabled. Default: 65</string>
     <string name="lower_limit_dialog_title">Lower Limit (mg/dL)</string>
 
-    <string name="log_search_hint">Filter by TAG or text...</string>
-    <string name="log_menu_filter_verbose">Verbose</string>
-    <string name="log_menu_filter_restart">Restart</string>
-
     <string name="companion_service_title">Companion Service Active</string>
-    <string name="companion_service_text">This auxiliary service ensures maximum app reliability.</string>
+    <string name="companion_service_text">Auxiliary service active.</string>
+
+    <string name="toast_enable_notifications">Please enable Notification Access for Eversense-Reader.</string>
+    <string name="toast_disable_battery_opt">Please disable Battery Optimization.</string>
+    <string name="toast_enable_alarms">Please allow setting Alarms/Reminders.</string>
+    <string name="toast_permissions_missing">Permissions missing. Starting request...</string>
+
 </resources>

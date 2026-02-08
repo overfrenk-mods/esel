@@ -1,7 +1,7 @@
-// ---------- CODICE COMPLETO E DEFINITIVO PER SGV.java ----------
+// ---------- CODICE SGV.java "PASS-THROUGH" (SENZA TAPPI) ----------
 package esel.esel.esel.datareader;
 
-import java.io.Serializable; // MODIFICA: Aggiunto l'import necessario
+import java.io.Serializable;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -12,25 +12,25 @@ import esel.esel.esel.util.SP;
 
 import static java.lang.Math.min;
 
-// MODIFICA: Aggiunta l'implementazione di Serializable
 public class SGV implements Serializable {
     public int value;
     public int raw;
     public long timestamp;
-    public int record;
+    public int record; // Usato per il trend o ID
     public String direction;
 
     private static final String CLASS_TAG = "SGV";
 
     public SGV(int value, long timestamp, int record) {
-        if (value < 0) { this.value = 38; }
-        else if (value < 40) { this.value = 39; }
-        else if (value > 400) { this.value = 400; }
-        else { this.value = value; }
+        // MODIFICA FONDAMENTALE: Rimosso il "Tappo" 40-400.
+        // Se il Listener invia 401 (HI) o 39 (LO), questo oggetto DEVE accettarlo.
+        // La validazione di sicurezza (30-500) è già fatta nel DataMonitorService.
 
-        this.raw = this.value;
+        this.value = value;
+        this.raw = value; // Il raw iniziale è uguale al valore ricevuto
         this.timestamp = timestamp;
         this.record = record;
+        this.direction = "None"; // Default
     }
 
     static public int Convert(float mmoll) {
@@ -44,6 +44,7 @@ public class SGV implements Serializable {
         return df.format(new Date(timestamp)) + ": " + value;
     }
 
+    // Metodo di supporto per calcolare la direzione (usato anche internamente)
     public void setDirection(double slope_by_minute) {
         direction = "None";
         if (slope_by_minute <= -3.5) {
@@ -63,8 +64,17 @@ public class SGV implements Serializable {
         }
     }
 
+    /**
+     * @deprecated Questo metodo è obsoleto. Lo smoothing ora viene gestito
+     * in modo centralizzato e sicuro da DataMonitorService (xDrip Style).
+     * Manteniamo il metodo solo per evitare errori di compilazione in parti legacy.
+     */
+    @Deprecated
     public void smooth(int last) {
-        EselLog.LogV(CLASS_TAG, "Smoothing: Grezzo=" + this.raw + ", Ultimo=" + last);
+        // LOGICA LEGACY (Disattivata o usata solo se richiamata esplicitamente da vecchi moduli)
+        // Il nuovo DataMonitorService NON usa questo metodo.
+
+        EselLog.LogV(CLASS_TAG, "Legacy Smoothing chiamato (non dovrebbe accadere nel nuovo Loop).");
 
         float lastSmooth = SP.getFloat("readingSmooth", (float) last);
         float factor = SP.getFloat("smooth_factor", 0.3f);
@@ -88,9 +98,6 @@ public class SGV implements Serializable {
         int lower_limit = SP.getInt("lower_limit", 65);
         if (this.raw > lower_limit) {
             this.value = (int) Math.round(smooth_val);
-            EselLog.LogI(CLASS_TAG, "Smoothing Applicato: Grezzo=" + this.raw + ", Lisciato=" + this.value);
-        } else {
-            EselLog.LogI(CLASS_TAG, "Smoothing Saltato: Valore ("+ this.raw +") <= Limite Inferiore (" + lower_limit + ")");
         }
     }
 }

@@ -1,1 +1,18 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        // Fondamentale per i grafici dell'app
+        maven { url = uri("https://jitpack.io") }
+    }
+}
+rootProject.name = "eversense-reader"
 include ':app'

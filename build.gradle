@@ -1,27 +1,20 @@
-// File: build.gradle (a livello di progetto)
-// ---------- CODICE MODIFICATO E OTTIMIZZATO ----------
-
+// Top-level build file
 buildscript {
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.13.2'
-
-        // NOTE: Do not place your application dependencies here; they belong
-        // in the individual module build.gradle files
+        // Questa riga deve corrispondere alla tua versione di Android Studio
+        classpath 'com.android.tools.build:gradle:9.0.0'
     }
 }
 
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-        // --- AGGIUNTO IL REPOSITORY PER MPANDROIDCHART ---
-        maven { url 'https://www.jitpack.io' }
-    }
+plugins {
+    id 'com.android.application' version '9.0.0' apply false
 }
+
+// ABBIAMO RIMOSSO "allprojects": i repository sono ora gestiti centralmente in settings.gradle
 
 task clean(type: Delete) {
     delete rootProject.buildDir

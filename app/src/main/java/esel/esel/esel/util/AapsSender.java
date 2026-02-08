@@ -11,6 +11,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.text.SimpleDateFormat;
+import java.util.Date; // Importante per la correzione
 import java.util.List;
 import java.util.Locale;
 
@@ -19,7 +20,6 @@ import esel.esel.esel.datareader.SGV;
 public class AapsSender {
     private static final String TAG = "AapsSender";
 
-    // --- MODIFICA: Usiamo gli stessi "canali" del vecchio codice funzionante ---
     private static final String XDRIP_PLUS_NS_EMULATOR_ACTION = "com.eveningoutpost.dexdrip.NS_EMULATOR";
     private static final String NSCLIENT_ACTION_DATABASE = "info.nightscout.client.DBACCESS";
 
@@ -30,81 +30,87 @@ public class AapsSender {
      */
     public static void sendToAaps(Context context, SGV sgv) {
         if (sgv == null) {
-            EselLog.LogW(TAG, "SGV è nullo, impossibile inviare ad AAPS.");
+            EselLog.LogW(TAG, "SGV nullo. Invio AAPS annullato.");
             return;
         }
 
         try {
-            // --- MODIFICA: Creiamo il corpo del messaggio come JSONArray, esattamente come nel vecchio codice ---
+            // AAPS si aspetta un Array di voci
             JSONArray entriesBody = new JSONArray();
             entriesBody.put(generateSgvEntryJson(sgv));
 
-            // Invochiamo il metodo di invio generico con i parametri corretti per AAPS/xDrip
             sendBundle(context, "add", "entries", entriesBody.toString(), XDRIP_PLUS_NS_EMULATOR_ACTION, "AAPS/xDrip");
 
         } catch (Exception e) {
-            EselLog.LogE(TAG, "Errore durante la preparazione dei dati per AAPS: " + e.getMessage());
+            EselLog.LogE(TAG, "Errore invio AAPS: " + e.getMessage());
         }
     }
 
     /**
-     * Invia i dati nel formato corretto per i client Nightscout
+     * Invia i dati nel formato corretto per i client Nightscout (App ufficiale)
      */
     public static void sendToNsClient(Context context, SGV sgv) {
-        if (sgv == null) {
-            EselLog.LogW(TAG, "SGV è nullo, impossibile inviare a NSClient.");
-            return;
-        }
+        if (sgv == null) return;
 
         try {
-            // --- MODIFICA: Creiamo il corpo del messaggio come JSONObject singolo ---
+            // NSClient gestisce anche il singolo oggetto
             JSONObject sgvJson = generateSgvEntryJson(sgv);
 
-            // Invochiamo il metodo di invio generico con i parametri corretti per NSClient
             sendBundle(context, "dbAdd", "entries", sgvJson.toString(), NSCLIENT_ACTION_DATABASE, "NSClient");
 
         } catch (Exception e) {
-            EselLog.LogE(TAG, "Errore durante la preparazione dei dati per NSClient: " + e.getMessage());
+            EselLog.LogE(TAG, "Errore invio NSClient: " + e.getMessage());
         }
     }
 
     /**
-     * Metodo helper privato per creare l'oggetto JSON standard, identico al vecchio codice.
+     * Genera l'oggetto JSON standard per i dati glicemici
      */
     private static JSONObject generateSgvEntryJson(SGV sgv) throws JSONException {
         JSONObject json = new JSONObject();
+
+        // Passiamo i valori numerici (anche 39 o 401)
         json.put("sgv", sgv.value);
-        json.put("rawbg", sgv.raw);
+        json.put("rawbg", sgv.raw); // Utile per debug, anche se uguale a sgv
+
         if (sgv.direction == null) {
             json.put("direction", "NONE");
         } else {
             json.put("direction", sgv.direction);
         }
-        // --- L'UNICA MODIFICA È QUI ---
+
         json.put("device", "Eversense-Reader");
         json.put("type", "sgv");
+
+        // Timestamp numerico
         json.put("date", sgv.timestamp);
-        json.put("dateString", jsonDateFormat.format(sgv.timestamp));
+
+        // --- FIX CRITICO QUI SOTTO ---
+        // SimpleDateFormat vuole un oggetto Date, non un long.
+        json.put("dateString", jsonDateFormat.format(new Date(sgv.timestamp)));
+
         return json;
     }
 
     /**
-     * Metodo di invio generico e robusto, identico al vecchio codice.
+     * Metodo di invio Broadcast generico e robusto
      */
     private static void sendBundle(Context context, String action, String collection, String jsonData, String intentAction, String targetLogName) {
         final Bundle bundle = new Bundle();
         bundle.putString("action", action);
         bundle.putString("collection", collection);
-        bundle.putString("data", jsonData); // I dati vengono inviati come stringa JSON
+        bundle.putString("data", jsonData);
 
         final Intent intent = new Intent(intentAction);
         intent.putExtras(bundle).addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
 
+        // Cerchiamo chi è in ascolto (AAPS, xDrip, NSClient)
         PackageManager pm = context.getPackageManager();
         List<ResolveInfo> receivers = pm.queryBroadcastReceivers(intent, 0);
 
         if (receivers.isEmpty()) {
-            EselLog.LogE(TAG, "INVIO FALLITO: Nessuna app trovata in ascolto per l'azione " + targetLogName);
+            // È normale se l'utente non ha installato l'app target
+            // EselLog.LogW(TAG, "Nessuna app trovata per: " + targetLogName);
             return;
         }
 
@@ -113,7 +119,7 @@ public class AapsSender {
                 String packageName = receiver.activityInfo.packageName;
                 intent.setPackage(packageName);
                 context.sendBroadcast(intent);
-                EselLog.LogI(TAG, "Dati inviati a (" + packageName + ") con successo.");
+                EselLog.LogI(TAG, "→ Dati inviati a: " + packageName);
             }
         }
     }

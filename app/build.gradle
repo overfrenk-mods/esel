@@ -1,27 +1,31 @@
-// ---------- CODICE CON FIX DIPENDENZA MANCANTE LocalBroadcastManager ----------
+// ---------- CODICE FIXATO: GRADLE COMPLETO ----------
 apply plugin: 'com.android.application'
 
 android {
-    compileSdk 35
+    compileSdk = 35
+
     defaultConfig {
-        applicationId "esel.esel.esel"
-        minSdk 30
-        targetSdk 30
-        versionCode 1
-        versionName "v1.0 by Chiariello Francesco"
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        applicationId = "esel.esel.esel"
+        minSdk = 30
+        targetSdk = 30
+        versionCode = 1
+        versionName = "v1.0 by Chiariello Francesco"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
             abiFilters 'arm64-v8a', 'x86_64'
         }
     }
+
     buildTypes {
         release {
             minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // --- FIX QUI SOTTO: Aggiunto '-optimize' ---
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
-    namespace 'esel.esel.esel'
+
+    namespace = 'esel.esel.esel'
 
     buildFeatures {
         buildConfig = true
@@ -31,6 +35,7 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+
     lint {
         disable 'ExpiredTargetSdkVersion'
     }
@@ -39,7 +44,7 @@ android {
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
 
-    // Versioni originali e stabili
+    // Retrofit e JSON
     implementation 'com.squareup.retrofit2:retrofit:2.11.0'
     implementation 'com.squareup.retrofit2:converter-gson:2.11.0'
     implementation 'com.google.code.gson:gson:2.13.2'
@@ -50,20 +55,16 @@ dependencies {
     implementation 'com.google.android.material:material:1.13.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.2.1'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-
     implementation 'androidx.preference:preference-ktx:1.2.1'
 
-    // --- AGGIUNTA FONDAMENTALE PER FIXARE L'ERRORE ---
-    // Questa libreria serve per LocalBroadcastManager che è stato rimosso dalle versioni recenti di AndroidX
+    // Fix per LocalBroadcastManager
     implementation 'androidx.localbroadcastmanager:localbroadcastmanager:1.1.0'
-    // ------------------------------------------------
 
+    // Grafici e Background Tasks
     implementation 'com.github.PhilJay:MPAndroidChart:v3.1.0'
-
-    // Dipendenza per WorkManager
     implementation "androidx.work:work-runtime-ktx:2.11.0"
 
-    // Dipendenze per i test
+    // Test
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'

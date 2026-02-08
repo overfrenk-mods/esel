@@ -1,8 +1,7 @@
-// ---------- CODICE CON LOG DI AVVIO CORRETTO (INFO INVECE DI RESTART) ----------
 package esel.esel.esel;
 
 import android.Manifest;
-import android.app.PendingIntent;
+import android.app.AlarmManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -16,6 +15,7 @@ import android.provider.Settings;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.Toast;
+
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
@@ -33,7 +33,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-import esel.esel.esel.receivers.WatchdogReceiver;
 import esel.esel.esel.receivers.WatchdogWorker;
 import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
@@ -72,17 +71,24 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void checkPermissionsAndStartService() {
-        if (areAllPermissionsGranted() && SP.getBoolean("enable_service", true)) {
-            // --- MODIFICA INIZIO: Cambiato LogR in LogI per evitare confusione ---
-            EselLog.LogI(TAG, "Permessi OK e servizio abilitato. Avvio il DataMonitorService...");
-            // --- MODIFICA FINE ---
-            ContextCompat.startForegroundService(this, new Intent(this, DataMonitorService.class));
+        boolean permissionsOk = areRuntimePermissionsGranted() &&
+                isNotificationListenerEnabled() &&
+                isBatteryOptimizationIgnored() &&
+                isExactAlarmPermissionGranted();
+
+        if (permissionsOk && SP.getBoolean("enable_service", true)) {
+            EselLog.LogI(TAG, "Permessi OK. Servizio abilitato. Avvio Sistema...");
+
+            Intent serviceIntent = new Intent(this, DataMonitorService.class);
+            ContextCompat.startForegroundService(this, serviceIntent);
+
             scheduleRedundantWatchdog();
-        } else if (!areAllPermissionsGranted()) {
-            EselLog.LogW(TAG, "Permessi mancanti. Avvio la procedura di richiesta.");
-            requestMissingPermissions();
+
+        } else if (!permissionsOk) {
+            EselLog.LogW(TAG, "Permessi mancanti. Avvio procedura guidata.");
+            requestNextMissingPermission();
         } else {
-            EselLog.LogI(TAG, "Il servizio è disabilitato dalle impostazioni. Nessuna azione.");
+            EselLog.LogI(TAG, "Servizio disabilitato dall'utente.");
         }
     }
 
@@ -102,11 +108,10 @@ public class MainActivity extends AppCompatActivity {
                 ExistingPeriodicWorkPolicy.KEEP,
                 watchdogWorkRequest);
 
-        EselLog.LogW(TAG, "Pattuglia di riserva (WorkManager) attivata e schedulata.");
+        EselLog.LogI(TAG, "Watchdog di Riserva (WorkManager) attivo.");
     }
 
-
-    private String[] getRequiredPermissions() {
+    private String[] getRequiredRuntimePermissions() {
         List<String> permissions = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS);
@@ -114,49 +119,104 @@ public class MainActivity extends AppCompatActivity {
         return permissions.toArray(new String[0]);
     }
 
-
-    private boolean areAllPermissionsGranted() {
-        for (String permission : getRequiredPermissions()) {
+    private boolean areRuntimePermissionsGranted() {
+        for (String permission : getRequiredRuntimePermissions()) {
             if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
                 return false;
             }
         }
-        return isNotificationListenerEnabled() && isBatteryOptimizationIgnored();
+        return true;
     }
 
-    private void requestMissingPermissions() {
-        List<String> missingPermissions = new ArrayList<>();
-        for (String permission : getRequiredPermissions()) {
+    private void requestNextMissingPermission() {
+        // 1. Permessi Runtime (Notifiche)
+        List<String> missingRuntime = new ArrayList<>();
+        for (String permission : getRequiredRuntimePermissions()) {
             if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
-                missingPermissions.add(permission);
+                missingRuntime.add(permission);
             }
         }
-
-        if (!missingPermissions.isEmpty()) {
-            EselLog.LogI(TAG, "Richiesta permessi runtime: " + missingPermissions);
-            multiplePermissionsLauncher.launch(missingPermissions.toArray(new String[0]));
+        if (!missingRuntime.isEmpty()) {
+            // Mostra Toast tradotto
+            Toast.makeText(this, getString(R.string.toast_permissions_missing), Toast.LENGTH_LONG).show();
+            multiplePermissionsLauncher.launch(missingRuntime.toArray(new String[0]));
+            return;
         }
 
+        // 2. Accesso Notifiche (Listener)
         if (!isNotificationListenerEnabled()) {
-            requestNotificationListenerPermission();
+            // Toast Multilingua
+            Toast.makeText(this, getString(R.string.toast_enable_notifications), Toast.LENGTH_LONG).show();
+            startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
+            return;
         }
+
+        // 3. Batteria (Doze Mode)
         if (!isBatteryOptimizationIgnored()) {
+            // Toast Multilingua
+            Toast.makeText(this, getString(R.string.toast_disable_battery_opt), Toast.LENGTH_LONG).show();
             requestToIgnoreBatteryOptimizations();
+            return;
+        }
+
+        // 4. Allarmi Esatti (Android 14+)
+        if (!isExactAlarmPermissionGranted()) {
+            // Toast Multilingua
+            Toast.makeText(this, getString(R.string.toast_enable_alarms), Toast.LENGTH_LONG).show();
+            requestExactAlarmPermission();
+            return;
         }
     }
 
     private final ActivityResultLauncher<String[]> multiplePermissionsLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), (Map<String, Boolean> grants) -> {
-                for (Map.Entry<String, Boolean> entry : grants.entrySet()) {
-                    if (entry.getValue()) {
-                        EselLog.LogI(TAG, "Permesso " + entry.getKey() + " CONCESSO.");
-                    } else {
-                        EselLog.LogW(TAG, "Permesso " + entry.getKey() + " NEGATO.");
-                        Toast.makeText(this, "Attenzione: senza il permesso " + entry.getKey() + ", l'app potrebbe non funzionare.", Toast.LENGTH_LONG).show();
-                    }
-                }
+                checkPermissionsAndStartService();
             });
 
+    private boolean isNotificationListenerEnabled() {
+        String pkgName = getPackageName();
+        final String flat = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+        if (flat != null) {
+            return flat.contains(pkgName);
+        }
+        return false;
+    }
+
+    private boolean isBatteryOptimizationIgnored() {
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    private void requestToIgnoreBatteryOptimizations() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+            intent.setData(Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception e) {
+            EselLog.LogE(TAG, "Errore apertura settings batteria: " + e.getMessage());
+        }
+    }
+
+    private boolean isExactAlarmPermissionGranted() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+            if (alarmManager != null) {
+                return alarmManager.canScheduleExactAlarms();
+            }
+        }
+        return true;
+    }
+
+    private void requestExactAlarmPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM);
+                startActivity(intent);
+            } catch (Exception e) {
+                EselLog.LogE(TAG, "Errore apertura settings allarmi: " + e.getMessage());
+            }
+        }
+    }
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -167,43 +227,14 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         int itemId = item.getItemId();
-
         if (itemId == R.id.action_log) {
             startActivity(new Intent(this, LogActivity.class));
             return true;
         }
-
         if (itemId == R.id.action_graph) {
             startActivity(new Intent(this, GraphActivity.class));
             return true;
         }
-
         return super.onOptionsItemSelected(item);
-    }
-
-    private boolean isNotificationListenerEnabled() {
-        String enabledListeners = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
-        if (enabledListeners != null) { return enabledListeners.contains(getPackageName()); }
-        return false;
-    }
-
-    private void requestNotificationListenerPermission() {
-        EselLog.LogI(TAG, "Richiesta accesso alle notifiche (Listener)...");
-        Toast.makeText(this, "Per favore, abilita Eversense-Reader nella schermata di Accesso alle Notifiche.", Toast.LENGTH_LONG).show();
-        startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
-    }
-
-    private boolean isBatteryOptimizationIgnored() {
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        return pm.isIgnoringBatteryOptimizations(getPackageName());
-    }
-
-    private void requestToIgnoreBatteryOptimizations() {
-        if (!isBatteryOptimizationIgnored()){
-            EselLog.LogI(TAG, "Richiesta per ignorare ottimizzazione batteria...");
-            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-            intent.setData(Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-        }
     }
 }

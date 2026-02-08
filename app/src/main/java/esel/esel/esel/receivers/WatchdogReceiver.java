@@ -1,4 +1,3 @@
-// ---------- CODICE CON FIX PER IL CONSUMO DI BATTERIA ----------
 package esel.esel.esel.receivers;
 
 import android.Manifest;
@@ -7,22 +6,19 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.provider.Settings;
+import android.text.TextUtils;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
-import androidx.preference.PreferenceManager;
 
-import java.util.Set;
-
-import esel.esel.esel.MainActivity;
 import esel.esel.esel.R;
 import esel.esel.esel.services.DataMonitorService;
 import esel.esel.esel.util.EselLog;
@@ -35,17 +31,12 @@ public class WatchdogReceiver extends BroadcastReceiver {
     private static final long WATCHDOG_INTERVAL_MS = 15 * 60 * 1000L;
     private static final long WAKELOCK_TIMEOUT_MS = 60 * 1000L;
 
-    private static final int RESTART_THRESHOLD = 3;
-    private static final long WINDOW_HOUR_MS = 60 * 60 * 1000L;
-    private static final String RESTART_ALERT_CHANNEL_ID = "EselRestartAlertChannel";
-    private static final int RESTART_ALERT_NOTIFICATION_ID = 102;
-
     private static final String LISTENER_ALERT_CHANNEL_ID = "EselListenerAlertChannel";
     private static final int LISTENER_ALERT_NOTIFICATION_ID = 103;
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        EselLog.LogW(TAG, "Allarme Watchdog 'Guardiano' scattato! Eseguo controllo di stabilità...");
+        EselLog.LogI(TAG, "Watchdog 'Guardiano' attivo. Controllo integrità sistema...");
 
         WakeLockHelper.acquire(context.getApplicationContext(), WAKELOCK_TIMEOUT_MS);
 
@@ -53,158 +44,113 @@ public class WatchdogReceiver extends BroadcastReceiver {
 
         new Thread(() -> {
             try {
-                // Pianifica il prossimo watchdog subito, per garantire la continuità
                 scheduleNextWatchdog(context);
 
                 if (!SP.getBoolean("enable_service", true)) {
-                    EselLog.LogI(TAG, "Il servizio è stato fermato volontariamente. Il watchdog non interviene.");
+                    EselLog.LogI(TAG, "Servizio disabilitato dall'utente. Watchdog in pausa.");
                     return;
                 }
 
                 checkNotificationListenerPermission(context);
-                checkAndRestartService(context);
+                keepServiceAlive(context);
 
+            } catch (Exception e) {
+                EselLog.LogE(TAG, "Errore durante ciclo Watchdog: " + e.getMessage());
             } finally {
                 if (pendingResult != null) {
                     pendingResult.finish();
                 }
                 WakeLockHelper.release();
-                EselLog.LogI(TAG, "Watchdog ha completato il lavoro in background.");
             }
         }).start();
     }
 
-    private void checkAndRestartService(Context context) {
-        long now = System.currentTimeMillis();
-        int restartCount = SP.getInt("watchdog_restart_count", 0);
-        long firstRestartTimestamp = SP.getLong("watchdog_first_restart_timestamp", 0L);
-
-        if (firstRestartTimestamp == 0 || (now - firstRestartTimestamp) > WINDOW_HOUR_MS) {
-            restartCount = 1;
-            SP.putLong("watchdog_first_restart_timestamp", now);
-        } else {
-            restartCount++;
-        }
-
-        EselLog.LogW(TAG, "Conteggio riavvii nell'ultima ora: " + restartCount);
-        SP.putInt("watchdog_restart_count", restartCount);
-
-        if (restartCount >= RESTART_THRESHOLD) {
-            long lastWarningTime = SP.getLong("watchdog_last_warning_time", 0L);
-            if ((now - lastWarningTime) > WINDOW_HOUR_MS) {
-                EselLog.LogE(TAG, "Soglia di riavvio superata! Mostro la notifica...");
-
-                SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
-                if (prefs.getBoolean("enable_restart_notifications", true)) {
-                    showRestartWarningNotification(context);
-                } else {
-                    EselLog.LogW(TAG, "La notifica di riavvio è disabilitata dall'utente. Non verrà mostrata.");
-                }
-
-                SP.putInt("watchdog_restart_count", 0);
-                SP.putLong("watchdog_first_restart_timestamp", 0L);
-            }
-        }
-
-        EselLog.LogW(TAG, "Il servizio dovrebbe essere attivo. Avvio preventivo per sicurezza...");
+    private void keepServiceAlive(Context context) {
         try {
-            ContextCompat.startForegroundService(context, new Intent(context, DataMonitorService.class));
-            EselLog.LogI(TAG, "Comando di avvio per DataMonitorService inviato con successo.");
+            Intent serviceIntent = new Intent(context, DataMonitorService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent);
+            } else {
+                context.startService(serviceIntent);
+            }
+            EselLog.LogI(TAG, "Ping al DataMonitorService inviato.");
         } catch (Exception e) {
-            Log.e(TAG, "ERRORE: Android ha bloccato il tentativo di avvio del servizio dal Watchdog!", e);
+            EselLog.LogE(TAG, "Impossibile avviare il servizio: " + e.getMessage());
         }
     }
 
     private void checkNotificationListenerPermission(Context context) {
-        Set<String> enabledListeners = NotificationManagerCompat.getEnabledListenerPackages(context);
-        if (enabledListeners.contains(context.getPackageName())) {
-            EselLog.LogI(TAG, "Controllo permesso notifiche: OK.");
-        } else {
-            EselLog.LogE(TAG, "Controllo permesso notifiche: FALLITO! Il permesso non è più attivo.");
+        if (!isNotificationServiceEnabled(context)) {
+            EselLog.LogE(TAG, "PERICOLO: Permesso lettura notifiche DISATTIVATO!");
             showListenerPermissionWarningNotification(context);
         }
     }
 
+    private boolean isNotificationServiceEnabled(Context context) {
+        String pkgName = context.getPackageName();
+        final String flat = Settings.Secure.getString(context.getContentResolver(), "enabled_notification_listeners");
+        if (!TextUtils.isEmpty(flat)) {
+            final String[] names = flat.split(":");
+            for (String name : names) {
+                final ComponentName cn = ComponentName.unflattenFromString(name);
+                if (cn != null && TextUtils.equals(pkgName, cn.getPackageName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     public static void scheduleNextWatchdog(Context context) {
         AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        if (alarmManager == null) {
-            EselLog.LogE(TAG, "Impossibile ottenere AlarmManager.");
-            return;
-        }
+        if (alarmManager == null) return;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (!alarmManager.canScheduleExactAlarms()) {
-                EselLog.LogE(TAG, "L'app non ha il permesso di pianificare allarmi esatti. Il Watchdog non può funzionare.");
-                return;
+                EselLog.LogW(TAG, "Manca permesso SCHEDULE_EXACT_ALARM.");
             }
         }
 
         Intent intent = new Intent(context, WatchdogReceiver.class);
-        PendingIntent pendingIntent = PendingIntent.getBroadcast(context, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(context, DataMonitorService.WATCHDOG_REQUEST_CODE, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
         long triggerAtMillis = System.currentTimeMillis() + WATCHDOG_INTERVAL_MS;
 
-        // --- MODIFICA CRUCIALE PER LA BATTERIA ---
-        // Sostituiamo il dispendioso setAlarmClock con setExactAndAllowWhileIdle.
-        // Questo allarme è comunque affidabile per risvegliare il dispositivo dalla modalità Doze,
-        // ma è ottimizzato per un basso consumo energetico, ideale per un task di background.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
         } else {
             alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent);
         }
-
-        EselLog.LogI(TAG, "Watchdog 'Guardiano': Prossimo allarme a basso consumo pianificato tra 15 minuti.");
     }
 
     public static void cancelWatchdog(Context context) {
         AlarmManager alarmManager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         Intent intent = new Intent(context, WatchdogReceiver.class);
-        PendingIntent pendingIntent = PendingIntent.getBroadcast(context, DataMonitorService.WATCHDOG_REQUEST_CODE, intent, PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent pendingIntent = PendingIntent.getBroadcast(context, DataMonitorService.WATCHDOG_REQUEST_CODE, intent,
+                PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE);
 
         if (pendingIntent != null && alarmManager != null) {
             alarmManager.cancel(pendingIntent);
             pendingIntent.cancel();
-            EselLog.LogW(TAG, "Catena di allarmi Watchdog CANCELLATA.");
-        }
-    }
-
-    private void showRestartWarningNotification(Context context) {
-        NotificationChannel channel = new NotificationChannel(RESTART_ALERT_CHANNEL_ID, "Avvisi Riavvio ESEL", NotificationManager.IMPORTANCE_HIGH);
-        channel.setDescription("Notifiche per problemi critici di funzionamento dell'app");
-        NotificationManager notificationManager = context.getSystemService(NotificationManager.class);
-        notificationManager.createNotificationChannel(channel);
-
-        Intent intent = new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
-        PendingIntent pendingIntent = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, RESTART_ALERT_CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_stat_esel_sync)
-                .setContentTitle(context.getString(R.string.notification_restart_title))
-                .setContentText(context.getString(R.string.notification_restart_text))
-                .setStyle(new NotificationCompat.BigTextStyle()
-                        .bigText(context.getString(R.string.notification_restart_text)))
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setContentIntent(pendingIntent)
-                .setAutoCancel(true);
-
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-            NotificationManagerCompat.from(context).notify(RESTART_ALERT_NOTIFICATION_ID, builder.build());
-        } else {
-            EselLog.LogW(TAG, "Permesso notifiche non concesso. Impossibile mostrare l'avviso di riavvio.");
+            EselLog.LogI(TAG, "Watchdog disattivato.");
         }
     }
 
     private void showListenerPermissionWarningNotification(Context context) {
-        NotificationChannel channel = new NotificationChannel(LISTENER_ALERT_CHANNEL_ID, "Avvisi Permessi ESEL", NotificationManager.IMPORTANCE_HIGH);
-        channel.setDescription("Notifiche per permessi mancanti o disattivati");
-        NotificationManager notificationManager = context.getSystemService(NotificationManager.class);
-        notificationManager.createNotificationChannel(channel);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(LISTENER_ALERT_CHANNEL_ID, "Avvisi Permessi ESEL", NotificationManager.IMPORTANCE_HIGH);
+            channel.setDescription("Avvisa se l'app perde il permesso di leggere Eversense");
+            NotificationManager nm = context.getSystemService(NotificationManager.class);
+            if (nm != null) nm.createNotificationChannel(channel);
+        }
 
         Intent intent = new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
-        PendingIntent pendingIntent = PendingIntent.getActivity(context, 1, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent pendingIntent = PendingIntent.getActivity(context, 1, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
+        // --- MODIFICA MULTILINGUA QUI ---
+        // Ora usa le stringhe XML invece del testo fisso
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, LISTENER_ALERT_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_esel_sync)
                 .setContentTitle(context.getString(R.string.notification_permission_title))
@@ -216,10 +162,10 @@ public class WatchdogReceiver extends BroadcastReceiver {
                 .setContentIntent(pendingIntent)
                 .setAutoCancel(false);
 
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-            NotificationManagerCompat.from(context).notify(LISTENER_ALERT_NOTIFICATION_ID, builder.build());
-        } else {
-            EselLog.LogW(TAG, "Permesso notifiche non concesso. Impossibile mostrare l'avviso del listener.");
-        }
+        try {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                NotificationManagerCompat.from(context).notify(LISTENER_ALERT_NOTIFICATION_ID, builder.build());
+            }
+        } catch (Exception ignored) {}
     }
 }

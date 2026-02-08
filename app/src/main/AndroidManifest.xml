@@ -1,17 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
-
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    xmlns:tools="http://schemas.android.com/tools"
+    package="esel.esel.esel"> <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" /> <uses-permission android:name="android.permission.USE_EXACT_ALARM" />      <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <queries>
+        <package android:name="com.senseonics.gen12androidapp"/>
+        <package android:name="com.senseonics.androidapp"/>
+        <package android:name="com.eveningoutpost.dexdrip"/>
+        <package android:name="info.nightscout.androidaps"/>
+    </queries>
 
     <application
         android:name=".Esel"
@@ -24,7 +31,6 @@
         android:theme="@style/AppTheme"
         tools:ignore="GoogleAppIndexingWarning"
         android:usesCleartextTraffic="true">
-        <activity android:name=".MainActivity" android:exported="false" />
 
         <activity
             android:name=".ActivationActivity"
@@ -36,20 +42,26 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".MainActivity" android:exported="false" />
         <activity android:name=".LogActivity" android:theme="@style/AppTheme"/>
-
         <activity android:name=".GraphActivity" android:theme="@style/AppTheme"/>
 
-        <receiver android:name=".receivers.AutostartReceiver" android:enabled="true" android:exported="false">
-            <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
+        <receiver android:name=".receivers.AutostartReceiver"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
         </receiver>
 
         <receiver android:name=".receivers.AppUpdateReceiver" android:enabled="true" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
         </receiver>
+
         <receiver android:name=".receivers.ServiceRestarter" android:enabled="true" android:exported="false" />
         <receiver android:name=".receivers.WatchdogReceiver" android:enabled="true" android:exported="false" />
-
         <receiver android:name=".receivers.FastPatrolReceiver" android:enabled="true" android:exported="false" />
 
         <service android:name=".datareader.EsNotificationListener"
@@ -72,10 +84,12 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
         <service
             android:name=".services.StabilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:exported="false">
+            android:exported="true"
+            android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
@@ -83,7 +97,6 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/stability_service_config" />
         </service>
-
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -96,12 +109,4 @@
         </provider>
 
     </application>
-
-    <queries>
-        <package android:name="com.senseonics.gen12androidapp"/>
-        <package android:name="com.senseonics.androidapp"/>
-        <package android:name="com.eveningoutpost.dexdrip"/>
-        <package android:name="info.nightscout.androidaps"/>
-    </queries>
-
 </manifest>
