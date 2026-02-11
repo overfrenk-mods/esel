@@ -1,4 +1,4 @@
-// ---------- CODICE VERSIONE 3.1.3 "NO-SKIP SAFETY" ----------
+// ---------- CODICE VERSIONE 3.1.4 "SAFETY MARGIN 5:50" ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -64,12 +64,10 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
 
-    // --- FIX DEFINITIVO (NO SKIP) ---
-    // Impostato a 5m 15s (315000ms).
-    // 1. Blocca i duplicati "fantasma" che arrivano a 5m 00s - 5m 10s.
-    // 2. Viene scavalcato dal "SyncTrigger" che scatta a 5m 30s.
-    // Risultato: Se il valore è uguale, parte con 30s di ritardo MA PARTE SEMPRE.
-    private static final long TIMESTAMP_COOLDOWN_MS = 315000L;
+    // --- FIX DEFINITIVO TRIANGOLO ROSSO (v3.1.4) ---
+    // Impostato a 5m 50s (350000ms).
+    // Copre i ritardi del sensore fino a 45-50 secondi senza creare conflitti.
+    private static final long TIMESTAMP_COOLDOWN_MS = 350000L;
 
     private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
     private static final long INTERVAL_MS = 5 * 60 * 1000L;
@@ -191,7 +189,7 @@ public class DataMonitorService extends Service {
             long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
             long timeSinceLastSgv = now - lastSgvTimestamp;
 
-            // --- 2. LOGICA "SMART BYPASS" + "NO SKIP TIMER" ---
+            // --- 2. LOGICA "SMART BYPASS" + "SAFETY TIMER" ---
             boolean isNewValueDifferent = (lastSentRawValue != -1) && (Math.abs(rawValue - lastSentRawValue) >= 1);
 
             if (!isManualOverride) {
@@ -211,9 +209,9 @@ public class DataMonitorService extends Service {
                         return; // STOP
                     }
                 } else if (lastSgvTimestamp > 0 && !isNewValueDifferent) {
-                    // Se siamo qui, il timer è scaduto (> 5m 15s) ma il valore è uguale.
-                    // Lo inviamo (probabilmente triggerato dal Sync a 5m 30s).
-                    EselLog.LogI(TAG, "⏱️ Timer scaduto (" + (timeSinceLastSgv/1000) + "s). Accetto dato stazionario (No Skip).");
+                    // Se siamo qui, il timer è scaduto (> 5m 50s) ma il valore è uguale.
+                    // Lo inviamo come heartbeat per non perdere il segnale.
+                    EselLog.LogI(TAG, "⏱️ Timer scaduto (" + (timeSinceLastSgv/1000) + "s). Accetto dato stazionario (Safety Heartbeat).");
                 }
             } else {
                 EselLog.LogW(TAG, "SYNC MANUALE: Filtri bypassati.");
@@ -289,10 +287,10 @@ public class DataMonitorService extends Service {
 
             double smoothedValue = (alpha * currentSgv.raw) + ((1.0 - alpha) * lastFinalValue);
 
-            // --- REATTIVITÀ SALTI: Soglia > 10 ---
-            if (Math.abs(currentSgv.raw - lastFinalValue) > 10) {
+            // --- REATTIVITÀ SALTI: Soglia > 25 ---
+            if (Math.abs(currentSgv.raw - lastFinalValue) > 25) {
                 currentSmoothingStatus = level + "⚡";
-                EselLog.LogW(TAG, "Smoothing: Salto >10mg/dL detected. Uso RAW per sicurezza.");
+                EselLog.LogW(TAG, "Smoothing: Salto >25mg/dL detected. Uso RAW per sicurezza.");
                 return currentSgv.raw;
             }
 
