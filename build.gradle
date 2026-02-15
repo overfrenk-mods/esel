@@ -6,12 +6,12 @@ buildscript {
     }
     dependencies {
         // Questa riga deve corrispondere alla tua versione di Android Studio
-        classpath 'com.android.tools.build:gradle:9.0.0'
+        classpath 'com.android.tools.build:gradle:9.0.1'
     }
 }
 
 plugins {
-    id 'com.android.application' version '9.0.0' apply false
+    id 'com.android.application' version '9.0.1' apply false
 }
 
 // ABBIAMO RIMOSSO "allprojects": i repository sono ora gestiti centralmente in settings.gradle

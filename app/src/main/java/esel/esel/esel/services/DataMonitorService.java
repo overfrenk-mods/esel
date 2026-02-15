@@ -1,4 +1,4 @@
-// ---------- CODICE VERSIONE 3.1.4 "SAFETY MARGIN 5:50" ----------
+// ---------- CODICE VERSIONE 3.5.0 "TREND STANDARD DEXCOM" ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -53,6 +53,7 @@ public class DataMonitorService extends Service {
     private static final String TAG = "DataMonitorService";
     public static final String CHANNEL_ID = "EselMonitorChannel";
     public static final int NOTIFICATION_ID = 101;
+
     public static final String ACTION_STOP_SERVICE = "esel.esel.esel.ACTION_STOP_SERVICE";
     public static final String ACTION_MANUAL_SYNC = "esel.esel.esel.ACTION_MANUAL_SYNC";
     public static final String ACTION_REQUEST_SGV_READ = "esel.esel.esel.ACTION_REQUEST_SGV_READ";
@@ -64,18 +65,23 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
 
-    // --- FIX DEFINITIVO TRIANGOLO ROSSO (v3.1.4) ---
-    // Impostato a 5m 50s (350000ms).
-    // Copre i ritardi del sensore fino a 45-50 secondi senza creare conflitti.
-    private static final long TIMESTAMP_COOLDOWN_MS = 350000L;
+    // --- CONFIGURAZIONE v3.5.0 ---
+    private static final long MIN_INTERVAL_MS = 270000L; // 4m 30s Buffer
+    private static final long LONG_PAUSE_THRESHOLD_MS = 9 * 60 * 1000L; // 9m Reset per ricarica
 
-    private static final long LONG_PAUSE_THRESHOLD_MS = 15 * 60 * 1000L;
+    // ZOMBIE KILLER: Scadenza dato nel buffer (8 minuti)
+    private static final long DATA_EXPIRATION_MS = 480000L;
+
     private static final long INTERVAL_MS = 5 * 60 * 1000L;
 
     private ExecutorService executor;
     private BroadcastReceiver sgvDataReceiver;
     private PowerManager.WakeLock wakeLock;
     private Gson gson;
+
+    private Handler bufferHandler;
+    private Runnable bufferRunnable;
+    private SGV pendingSgv = null;
 
     private Handler syncTriggerHandler;
     private Runnable syncTriggerRunnable;
@@ -99,6 +105,8 @@ public class DataMonitorService extends Service {
 
         executor = Executors.newSingleThreadExecutor();
         gson = new Gson();
+
+        bufferHandler = new Handler(Looper.getMainLooper());
         syncTriggerHandler = new Handler(Looper.getMainLooper());
 
         PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
@@ -136,12 +144,10 @@ public class DataMonitorService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
             if (ACTION_STOP_SERVICE.equals(intent.getAction())) {
-                EselLog.LogW(TAG, "Azione STOP ricevuta.");
                 stopSelfService();
                 return START_NOT_STICKY;
             }
             if (ACTION_MANUAL_SYNC.equals(intent.getAction())) {
-                EselLog.LogW(TAG, "SYNC MANUALE RICHIESTO.");
                 if (intent.hasExtra(EsNotificationListener.EXTRA_SGV_DATA)) {
                     final SGV sgv = (SGV) intent.getSerializableExtra(EsNotificationListener.EXTRA_SGV_DATA);
                     if (sgv != null) {
@@ -179,71 +185,37 @@ public class DataMonitorService extends Service {
             long now = System.currentTimeMillis();
             sgv.timestamp = now;
 
-            // --- 1. SANITY CHECK ---
             if (rawValue < 30 || rawValue > 500) {
-                EselLog.LogE(TAG, "⛔ VALORE ANOMALO: " + rawValue + ". Scartato per sicurezza.");
+                EselLog.LogE(TAG, "⛔ VALORE ANOMALO: " + rawValue + ". Scartato.");
                 return;
             }
 
-            int lastSentRawValue = SP.getInt(KEY_LAST_SGV_RAW_VALUE, -1);
-            long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
-            long timeSinceLastSgv = now - lastSgvTimestamp;
+            long lastSentTime = SP.getLong(KEY_LAST_SUCCESSFUL_SEND_MS, 0L);
+            long timeSinceLastSend = now - lastSentTime;
 
-            // --- 2. LOGICA "SMART BYPASS" + "SAFETY TIMER" ---
-            boolean isNewValueDifferent = (lastSentRawValue != -1) && (Math.abs(rawValue - lastSentRawValue) >= 1);
-
-            if (!isManualOverride) {
-                // RESET DOPO PAUSA LUNGA (>15 min)
-                if (lastSgvTimestamp > 0 && timeSinceLastSgv > LONG_PAUSE_THRESHOLD_MS) {
-                    EselLog.LogW(TAG, "⚠️ [RESET] Pausa lunga rilevata. Accetto dato immediatamente.");
-                    SP.putInt(KEY_LAST_SGV_FINAL_VALUE, -1);
-                    lastSgvTimestamp = 0L;
-                }
-                // CONTROLLO FILTRO
-                else if (lastSgvTimestamp > 0 && timeSinceLastSgv < TIMESTAMP_COOLDOWN_MS) {
-                    if (isNewValueDifferent) {
-                        EselLog.LogW(TAG, "⚡ VALORE CAMBIATO (" + lastSentRawValue + " -> " + rawValue + ")! Bypasso il timer e invio SUBITO.");
-                        // PASSA (Bypass attivo)
-                    } else {
-                        EselLog.LogI(TAG, "[FILTRO] Valore identico (" + rawValue + ") e timer non scaduto. Scartato.");
-                        return; // STOP
-                    }
-                } else if (lastSgvTimestamp > 0 && !isNewValueDifferent) {
-                    // Se siamo qui, il timer è scaduto (> 5m 50s) ma il valore è uguale.
-                    // Lo inviamo come heartbeat per non perdere il segnale.
-                    EselLog.LogI(TAG, "⏱️ Timer scaduto (" + (timeSinceLastSgv/1000) + "s). Accetto dato stazionario (Safety Heartbeat).");
-                }
-            } else {
-                EselLog.LogW(TAG, "SYNC MANUALE: Filtri bypassati.");
+            // RESET per Manuale o Pausa Lunga (Gap > 9 min)
+            if (isManualOverride || (lastSentTime > 0 && timeSinceLastSend > LONG_PAUSE_THRESHOLD_MS)) {
+                EselLog.LogW(TAG, "⚠️ [RESET/GAP " + (timeSinceLastSend/60000) + "m] Invio immediato (RAW).");
+                SP.putInt(KEY_LAST_SGV_FINAL_VALUE, -1);
+                flushBufferAndSend(sgv);
+                return;
             }
 
-            // --- 3. SMOOTHING & TREND ---
-            sgv.value = applyEasySmoothing(sgv);
-            calculateTrend(sgv);
+            // BUFFER se troppo presto (< 4m 30s)
+            if (timeSinceLastSend < MIN_INTERVAL_MS) {
+                EselLog.LogI(TAG, "🅿️ Buffer (+" + (timeSinceLastSend/1000) + "s). Parcheggio " + rawValue + ".");
 
-            Context appContext = getApplicationContext();
-            if (SP.getBoolean("send_to_AAPS", true)) { AapsSender.sendToAaps(appContext, sgv); }
-            if (SP.getBoolean("send_to_NS", false)) { AapsSender.sendToNsClient(appContext, sgv); }
+                pendingSgv = sgv;
 
-            // Salvataggio stato
-            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(appContext);
-            SharedPreferences.Editor editor = prefs.edit();
-            editor.putLong(KEY_LAST_SGV_TIMESTAMP, sgv.timestamp);
-            editor.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, now);
-            editor.putInt(KEY_LAST_SGV_RAW_VALUE, rawValue);
-            editor.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.value);
-            editor.apply();
+                if (bufferRunnable == null) {
+                    scheduleBufferFlush(MIN_INTERVAL_MS - timeSinceLastSend);
+                }
+                return;
+            }
 
-            updateSgvHistory(sgv);
-
-            // --- 4. NOTIFICA ---
-            DateFormat df = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
-            String arrow = getTrendArrow(sgv.direction);
-            String time = df.format(new Date(sgv.timestamp));
-            String notificationDetail = sgv.value + " " + arrow +
-                    " (Raw: " + rawValue + ") [" + currentSmoothingStatus + "] alle " + time;
-
-            updateNotification(notificationDetail);
+            // INVIO DIRETTO se tempo OK
+            EselLog.LogI(TAG, "✅ Tempo OK (" + (timeSinceLastSend/1000) + "s). Invio diretto.");
+            flushBufferAndSend(sgv);
 
         } catch (Throwable t) {
             EselLog.LogE(TAG, "Errore processamento: " + Log.getStackTraceString(t));
@@ -254,13 +226,86 @@ public class DataMonitorService extends Service {
         }
     }
 
+    private void scheduleBufferFlush(long delayMs) {
+        if (delayMs < 100) delayMs = 100;
+        EselLog.LogI(TAG, "⏳ Timer impostato tra " + (delayMs/1000) + "s.");
+
+        bufferRunnable = () -> {
+            if (pendingSgv != null) {
+                long now = System.currentTimeMillis();
+                long age = now - pendingSgv.timestamp;
+
+                // CONTROLLO ZOMBIE: Se il dato è vecchio di > 8 min, BUTTALO.
+                if (age > DATA_EXPIRATION_MS) {
+                    EselLog.LogE(TAG, "💀 Dato ZOMBIE rilevato! È vecchio di " + (age/1000) + "s. SCARTATO.");
+                    pendingSgv = null;
+                    bufferRunnable = null;
+                    return;
+                }
+
+                EselLog.LogW(TAG, "⏰ Buffer scaduto. Invio dato parcheggiato: " + pendingSgv.raw);
+                SGV toSend = pendingSgv;
+                pendingSgv = null;
+                bufferRunnable = null;
+                executor.execute(() -> performSend(toSend));
+            } else {
+                bufferRunnable = null;
+            }
+        };
+        bufferHandler.postDelayed(bufferRunnable, delayMs);
+    }
+
+    private void flushBufferAndSend(SGV sgv) {
+        if (bufferRunnable != null) {
+            bufferHandler.removeCallbacks(bufferRunnable);
+            bufferRunnable = null;
+        }
+        pendingSgv = null;
+        performSend(sgv);
+    }
+
+    private void performSend(SGV sgv) {
+        try {
+            long now = System.currentTimeMillis();
+            sgv.timestamp = now;
+
+            // Smoothing
+            sgv.value = applyEasySmoothing(sgv);
+
+            // Calcolo Trend (IMPORTANTE: Fatto DOPO lo smoothing)
+            calculateTrend(sgv);
+
+            Context appContext = getApplicationContext();
+            if (SP.getBoolean("send_to_AAPS", true)) { AapsSender.sendToAaps(appContext, sgv); }
+            if (SP.getBoolean("send_to_NS", false)) { AapsSender.sendToNsClient(appContext, sgv); }
+
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(appContext);
+            SharedPreferences.Editor editor = prefs.edit();
+            editor.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, now);
+            editor.putInt(KEY_LAST_SGV_RAW_VALUE, sgv.raw);
+            editor.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.value);
+            editor.apply();
+
+            updateSgvHistory(sgv);
+
+            DateFormat df = new SimpleDateFormat("HH:mm:ss", Locale.getDefault());
+            String arrow = getTrendArrow(sgv.direction);
+            String time = df.format(new Date(sgv.timestamp));
+            String notificationDetail = sgv.value + " " + arrow +
+                    " (Raw: " + sgv.raw + ") [" + currentSmoothingStatus + "] alle " + time;
+            updateNotification(notificationDetail);
+
+        } catch (Exception e) {
+            EselLog.LogE(TAG, "Errore performSend: " + e.getMessage());
+        }
+    }
+
     private int applyEasySmoothing(SGV currentSgv) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
         if (!prefs.getBoolean("smooth_data", false)) {
             currentSmoothingStatus = "OFF";
             return currentSgv.raw;
         }
-
         try {
             int lowerLimit = Integer.parseInt(prefs.getString("lower_limit", "65"));
             if (currentSgv.raw < lowerLimit) {
@@ -270,7 +315,6 @@ public class DataMonitorService extends Service {
 
             String level = prefs.getString("smoothing_level", "MEDIO").toUpperCase();
             double alpha;
-
             switch (level) {
                 case "SOFT":  alpha = 0.70; break;
                 case "ALTO":  alpha = 0.25; break;
@@ -281,48 +325,54 @@ public class DataMonitorService extends Service {
 
             int lastFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
             if (lastFinalValue == -1) {
-                currentSmoothingStatus = level;
+                currentSmoothingStatus = "RAW(Reset)";
                 return currentSgv.raw;
             }
 
             double smoothedValue = (alpha * currentSgv.raw) + ((1.0 - alpha) * lastFinalValue);
 
-            // --- REATTIVITÀ SALTI: Soglia > 25 ---
-            if (Math.abs(currentSgv.raw - lastFinalValue) > 25) {
-                currentSmoothingStatus = level + "⚡";
-                EselLog.LogW(TAG, "Smoothing: Salto >25mg/dL detected. Uso RAW per sicurezza.");
-                return currentSgv.raw;
-            }
-
             currentSmoothingStatus = level;
             return (int) Math.round(smoothedValue);
-
         } catch (Exception e) {
             currentSmoothingStatus = "ERR";
             return currentSgv.raw;
         }
     }
 
+    // --- NUOVO CALCOLO TREND STANDARD (mg/dL al minuto) ---
     private void calculateTrend(SGV sgv) {
         long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
         int lastSentFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
 
+        // Se non abbiamo uno storico valido, non possiamo calcolare la tendenza
         if (lastSgvTimestamp <= 0 || lastSentFinalValue <= 0) {
             sgv.direction = "Flat"; return;
         }
+
         long timeDiff = sgv.timestamp - lastSgvTimestamp;
-        if (timeDiff <= 0) {
+        // Evitiamo divisioni per zero o tempi assurdi
+        if (timeDiff <= 0 || timeDiff > 30 * 60 * 1000) {
             sgv.direction = "Flat"; return;
         }
-        double valueDiff = (double) sgv.value - lastSentFinalValue;
-        double slopeByMinute = valueDiff * 60000.0 / timeDiff;
 
-        if (slopeByMinute <= -3.5) sgv.direction = "DoubleDown";
+        // Calcoliamo la variazione
+        double valueDiff = (double) sgv.value - lastSentFinalValue;
+
+        // Calcoliamo la pendenza: (Delta / Tempo) * 60000 = mg/dL al minuto
+        double slopeByMinute = (valueDiff / timeDiff) * 60000.0;
+
+        // --- SOGLIE STANDARD (Stile Dexcom/Abbott) ---
+        // Double Up/Down: > 3.0 mg/dl al minuto
+        // Single Up/Down: > 2.0 mg/dl al minuto
+        // 45 Up/Down:     > 1.0 mg/dl al minuto
+        // Flat:           tra -1.0 e 1.0
+
+        if (slopeByMinute <= -3.0) sgv.direction = "DoubleDown";
         else if (slopeByMinute <= -2.0) sgv.direction = "SingleDown";
         else if (slopeByMinute <= -1.0) sgv.direction = "FortyFiveDown";
         else if (slopeByMinute < 1.0) sgv.direction = "Flat";
         else if (slopeByMinute < 2.0) sgv.direction = "FortyFiveUp";
-        else if (slopeByMinute < 3.5) sgv.direction = "SingleUp";
+        else if (slopeByMinute < 3.0) sgv.direction = "SingleUp";
         else sgv.direction = "DoubleUp";
     }
 
@@ -330,7 +380,6 @@ public class DataMonitorService extends Service {
         if (syncTriggerHandler != null && syncTriggerRunnable != null) {
             syncTriggerHandler.removeCallbacks(syncTriggerRunnable);
         }
-
         syncTriggerRunnable = new Runnable() {
             @Override
             public void run() {
@@ -338,12 +387,13 @@ public class DataMonitorService extends Service {
                     FastPatrolReceiver.schedule(getApplicationContext());
                 } catch (Exception ignored) {}
 
-                requestSgvFromListener();
+                if (bufferRunnable == null) {
+                    requestSgvFromListener();
+                }
 
                 long now = System.currentTimeMillis();
                 long nextTarget = now + (INTERVAL_MS - (now % INTERVAL_MS)) + 30000L;
                 long delay = nextTarget - now;
-
                 if (delay < 5000) delay += INTERVAL_MS;
 
                 syncTriggerHandler.postDelayed(this, delay);
@@ -394,6 +444,9 @@ public class DataMonitorService extends Service {
         SP.putBoolean("enable_service", false);
         if (syncTriggerHandler != null) {
             syncTriggerHandler.removeCallbacks(syncTriggerRunnable);
+        }
+        if (bufferHandler != null && bufferRunnable != null) {
+            bufferHandler.removeCallbacks(bufferRunnable);
         }
         WatchdogReceiver.cancelWatchdog(this);
         FastPatrolReceiver.cancel(this);
