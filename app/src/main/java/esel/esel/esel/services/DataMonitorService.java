@@ -1,4 +1,3 @@
-// ---------- CODICE VERSIONE 3.5.0 "TREND STANDARD DEXCOM" ----------
 package esel.esel.esel.services;
 
 import android.app.Notification;
@@ -57,6 +56,8 @@ public class DataMonitorService extends Service {
     public static final String ACTION_STOP_SERVICE = "esel.esel.esel.ACTION_STOP_SERVICE";
     public static final String ACTION_MANUAL_SYNC = "esel.esel.esel.ACTION_MANUAL_SYNC";
     public static final String ACTION_REQUEST_SGV_READ = "esel.esel.esel.ACTION_REQUEST_SGV_READ";
+
+    // Fix compilazione
     public static final int WATCHDOG_REQUEST_CODE = 901;
 
     public static final String KEY_LAST_SUCCESSFUL_SEND_MS = "status_last_successful_send_ms";
@@ -65,12 +66,10 @@ public class DataMonitorService extends Service {
     public static final String KEY_LAST_SGV_FINAL_VALUE = "status_last_sgv_final_value";
     public static final String KEY_SGV_HISTORY_JSON = "sgv_history_json";
 
-    // --- CONFIGURAZIONE v3.5.0 ---
+    // --- CONFIGURAZIONE v3.6.3 ---
     private static final long MIN_INTERVAL_MS = 270000L; // 4m 30s Buffer
-    private static final long LONG_PAUSE_THRESHOLD_MS = 9 * 60 * 1000L; // 9m Reset per ricarica
-
-    // ZOMBIE KILLER: Scadenza dato nel buffer (8 minuti)
-    private static final long DATA_EXPIRATION_MS = 480000L;
+    private static final long LONG_PAUSE_THRESHOLD_MS = 9 * 60 * 1000L;
+    private static final long DATA_EXPIRATION_MS = 480000L; // 8 min Zombie Killer
 
     private static final long INTERVAL_MS = 5 * 60 * 1000L;
 
@@ -130,10 +129,7 @@ public class DataMonitorService extends Service {
             try {
                 startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
             } catch (Exception e) {
-                EselLog.LogE(TAG, "Errore startForeground Q+: " + e.getMessage());
-                try {
-                    startForeground(NOTIFICATION_ID, notification);
-                } catch (Exception ignored) {}
+                try { startForeground(NOTIFICATION_ID, notification); } catch (Exception ignored) {}
             }
         } else {
             startForeground(NOTIFICATION_ID, notification);
@@ -193,7 +189,7 @@ public class DataMonitorService extends Service {
             long lastSentTime = SP.getLong(KEY_LAST_SUCCESSFUL_SEND_MS, 0L);
             long timeSinceLastSend = now - lastSentTime;
 
-            // RESET per Manuale o Pausa Lunga (Gap > 9 min)
+            // RESET per Manuale o Pausa Lunga
             if (isManualOverride || (lastSentTime > 0 && timeSinceLastSend > LONG_PAUSE_THRESHOLD_MS)) {
                 EselLog.LogW(TAG, "⚠️ [RESET/GAP " + (timeSinceLastSend/60000) + "m] Invio immediato (RAW).");
                 SP.putInt(KEY_LAST_SGV_FINAL_VALUE, -1);
@@ -203,8 +199,14 @@ public class DataMonitorService extends Service {
 
             // BUFFER se troppo presto (< 4m 30s)
             if (timeSinceLastSend < MIN_INTERVAL_MS) {
-                EselLog.LogI(TAG, "🅿️ Buffer (+" + (timeSinceLastSend/1000) + "s). Parcheggio " + rawValue + ".");
 
+                // --- FIX DUPLICATI LOG (Silent Update) ---
+                if (pendingSgv != null && pendingSgv.raw == rawValue) {
+                    pendingSgv.timestamp = now; // Tengo il dato fresco
+                    return; // ESCO SUBITO: Non scrivo "Parcheggio" nel log!
+                }
+
+                EselLog.LogI(TAG, "🅿️ Buffer (+" + (timeSinceLastSend/1000) + "s). Parcheggio " + rawValue + ".");
                 pendingSgv = sgv;
 
                 if (bufferRunnable == null) {
@@ -235,7 +237,7 @@ public class DataMonitorService extends Service {
                 long now = System.currentTimeMillis();
                 long age = now - pendingSgv.timestamp;
 
-                // CONTROLLO ZOMBIE: Se il dato è vecchio di > 8 min, BUTTALO.
+                // ZOMBIE KILLER
                 if (age > DATA_EXPIRATION_MS) {
                     EselLog.LogE(TAG, "💀 Dato ZOMBIE rilevato! È vecchio di " + (age/1000) + "s. SCARTATO.");
                     pendingSgv = null;
@@ -269,19 +271,22 @@ public class DataMonitorService extends Service {
             long now = System.currentTimeMillis();
             sgv.timestamp = now;
 
-            // Smoothing
+            // 1. Smoothing
             sgv.value = applyEasySmoothing(sgv);
 
-            // Calcolo Trend (IMPORTANTE: Fatto DOPO lo smoothing)
+            // 2. Calcolo Trend
             calculateTrend(sgv);
 
             Context appContext = getApplicationContext();
             if (SP.getBoolean("send_to_AAPS", true)) { AapsSender.sendToAaps(appContext, sgv); }
             if (SP.getBoolean("send_to_NS", false)) { AapsSender.sendToNsClient(appContext, sgv); }
 
+            // 3. SALVATAGGIO STATO (FIX TEMPO)
             SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(appContext);
             SharedPreferences.Editor editor = prefs.edit();
+
             editor.putLong(KEY_LAST_SUCCESSFUL_SEND_MS, now);
+            editor.putLong(KEY_LAST_SGV_TIMESTAMP, sgv.timestamp); // <-- Salva l'orario per il trend!
             editor.putInt(KEY_LAST_SGV_RAW_VALUE, sgv.raw);
             editor.putInt(KEY_LAST_SGV_FINAL_VALUE, sgv.value);
             editor.apply();
@@ -339,40 +344,30 @@ public class DataMonitorService extends Service {
         }
     }
 
-    // --- NUOVO CALCOLO TREND STANDARD (mg/dL al minuto) ---
+    // --- CALCOLO TREND BILANCIATO (v3.6.3) ---
     private void calculateTrend(SGV sgv) {
         long lastSgvTimestamp = SP.getLong(KEY_LAST_SGV_TIMESTAMP, 0L);
         int lastSentFinalValue = SP.getInt(KEY_LAST_SGV_FINAL_VALUE, -1);
 
-        // Se non abbiamo uno storico valido, non possiamo calcolare la tendenza
         if (lastSgvTimestamp <= 0 || lastSentFinalValue <= 0) {
             sgv.direction = "Flat"; return;
         }
 
         long timeDiff = sgv.timestamp - lastSgvTimestamp;
-        // Evitiamo divisioni per zero o tempi assurdi
         if (timeDiff <= 0 || timeDiff > 30 * 60 * 1000) {
             sgv.direction = "Flat"; return;
         }
 
-        // Calcoliamo la variazione
         double valueDiff = (double) sgv.value - lastSentFinalValue;
-
-        // Calcoliamo la pendenza: (Delta / Tempo) * 60000 = mg/dL al minuto
         double slopeByMinute = (valueDiff / timeDiff) * 60000.0;
 
-        // --- SOGLIE STANDARD (Stile Dexcom/Abbott) ---
-        // Double Up/Down: > 3.0 mg/dl al minuto
-        // Single Up/Down: > 2.0 mg/dl al minuto
-        // 45 Up/Down:     > 1.0 mg/dl al minuto
-        // Flat:           tra -1.0 e 1.0
-
-        if (slopeByMinute <= -3.0) sgv.direction = "DoubleDown";
-        else if (slopeByMinute <= -2.0) sgv.direction = "SingleDown";
-        else if (slopeByMinute <= -1.0) sgv.direction = "FortyFiveDown";
-        else if (slopeByMinute < 1.0) sgv.direction = "Flat";
-        else if (slopeByMinute < 2.0) sgv.direction = "FortyFiveUp";
-        else if (slopeByMinute < 3.0) sgv.direction = "SingleUp";
+        // Soglie bilanciate (Ottimizzate per compensare lo Smoothing)
+        if (slopeByMinute <= -2.5) sgv.direction = "DoubleDown";
+        else if (slopeByMinute <= -1.5) sgv.direction = "SingleDown";
+        else if (slopeByMinute <= -0.7) sgv.direction = "FortyFiveDown";
+        else if (slopeByMinute < 0.7) sgv.direction = "Flat";
+        else if (slopeByMinute < 1.5) sgv.direction = "FortyFiveUp";
+        else if (slopeByMinute < 2.5) sgv.direction = "SingleUp";
         else sgv.direction = "DoubleUp";
     }
 
